@@ -1,0 +1,76 @@
+# ---- Root .gitignore for Hi-Doc ----
+
+# Flutter / Dart build + tooling
+.dart_tool/
+.packages
+build/
+**/GeneratedPluginRegistrant.dart
+# Optionally ignore lock if publishing a package; keep it for apps (we keep pubspec.lock)
+
+# Platform build outputs
+android/.gradle/
+android/local.properties
+android/app/release/
+android/app/profile/
+android/app/debug/
+ios/Pods/
+macos/Pods/
+
+# IntelliJ / Android Studio
+*.iml
+*.iws
+*.ipr
+.idea/
+
+# VS Code (keep explicit allow-listed project files)
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Node / Backend
+backend/node_modules/
+backend/dist/
+backend/coverage/
+backend/.eslintcache
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment & secrets
+.env
+.env.*
+# Keep root fallback env tracked
+!.env.root
+
+# Local SQLite / data files
+backend/hi_doc.db
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Crash / profiling dumps
+*.swp
+*.swo
+*.orig
+
+# Flutter tool generated (if any stray copies)
+flutter_export_environment.sh
+
+# Vendored Flutter SDK accidentally copied into the repo
+# Remove this directory from git history if not intentionally maintaining a fork.
+lib/ui/screens/flutter/
+
+# If you really need specific third_party bits inside that SDK, move just those
+# pieces elsewhere and delete the large SDK tree.
+
+# Coverage
+coverage/
+
+# Misc
+*.tmp
+*.bak

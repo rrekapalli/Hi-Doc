@@ -1,0 +1,87 @@
+name: hi_doc
+description: AI-powered chat-based health tracker
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  provider: ^6.0.5
+  collection: ^1.18.0
+  intl: ^0.20.2
+  sqflite: ^2.3.0
+  path: ^1.9.0
+  path_provider: ^2.1.3
+  firebase_core: ^4.0.0
+  firebase_auth: ^6.0.0
+  google_sign_in: ^7.1.1
+  flutter_appauth: ^9.0.1 # For Microsoft OAuth (with Azure AD B2C or MS identity)
+  http: ^1.2.1
+  file_picker: ^10.2.3
+  flutter_local_notifications: ^19.4.0
+  timezone: ^0.10.1
+  fl_chart: ^1.0.0
+  shared_preferences: ^2.2.3
+  json_annotation: ^4.9.0
+  uuid: ^4.4.0
+  flutter_secure_storage: ^9.2.2
+  llama_cpp_dart: ^0.1.0 # earliest available version for local tiny LLaMA inference support
+
+  # Optional (choose one chart lib); syncfusion requires license key for prod
+  # syncfusion_flutter_charts: ^26.1.41
+
+  # AI parsing abstraction (implement later / plugin pattern)
+  # openai_api: ^<placeholder>
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.11
+  json_serializable: ^6.8.0
+  mocktail: ^1.0.3
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/reports/
+    - assets/prescriptions/
+    - assets/models/
+    - assets/prompts/
+    - message-parser-prompt.md
+    - assets/images/hi-doc.png
+
+flutter_launcher_icons:
+  image_path: assets/images/hi-doc.png
+  android: true
+  ios: true
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/images/hi-doc.png
+  web:
+    generate: true
+    image_path: assets/images/hi-doc.png
+    background_color: "#FFFFFF"
+    theme_color: "#FFFFFF"
+  windows:
+    generate: true
+    image_path: assets/images/hi-doc.png
+    icon_size: 48
+  macos:
+    generate: true
+    image_path: assets/images/hi-doc.png
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: assets/images/hi-doc.png
+  android_gravity: center
+  ios_content_mode: center
+  android_12:
+    image: assets/images/hi-doc.png
+    icon_background_color: "#FFFFFF"
+  web: true

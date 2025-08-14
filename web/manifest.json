@@ -1,0 +1,22 @@
+{
+  "name": "Hi-Doc",
+  "short_name": "Hi-Doc",
+  "description": "AI-powered chat-based health tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "assets/images/hi-doc.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/images/hi-doc.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

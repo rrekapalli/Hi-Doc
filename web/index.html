@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Hi-Doc</title>
+  <meta name="description" content="AI-powered chat-based health tracker">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#FFFFFF">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  
+  <!-- Web app manifest -->
+  <link rel="manifest" href="manifest.json">
+  
+  <!-- Flutter web configuration -->
+  <script>
+    // Configure Flutter web settings
+    window.flutterConfiguration = {
+      canvasKitBaseUrl: "/canvaskit/",
+      // Increase channel buffer sizes to prevent message discarding
+      channelBuffers: {
+        "flutter/lifecycle": 15,
+        "flutter/platform": 15,
+        "flutter/settings": 15,
+        "flutter/textinput": 15,
+        "flutter/accessibility": 10,
+        "flutter/semantics": 10
+      },
+      // Performance optimizations
+      renderer: "canvaskit"
+    };
+  </script>
+</head>
+<body>
+  <!-- Load Flutter app -->
+  <script src="main.dart.js" type="application/javascript"></script>
+</body>
+</html>
