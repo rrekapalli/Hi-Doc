@@ -35,18 +35,23 @@ CREATE TABLE IF NOT EXISTS medications (
    - `user_id`: Provided from app context.
 
 3. **Output**:
-   - Respond with JSON mapping directly to `medications` table fields.
+   - Respond with JSON that includes both schema validation fields and medication data.
    - Example:
      ```json
      {
-       "id": "uuid-generated",
-       "user_id": "context-user-id",
-       "name": "Dolo 650",
-       "dosage": "650 mg",
-       "schedule": "morning before breakfast and night before dinner",
-       "duration_days": null,
-       "is_forever": 1,
-       "start_date": 1734086400
+       "parsed": true,
+       "entry": {
+         "type": "medication",
+         "category": "MEDICATION",
+         "timestamp": 1734086400,
+         "medication": {
+           "name": "Dolo 650",
+           "dose": 650,
+           "doseUnit": "mg",
+           "frequencyPerDay": 2
+         }
+       },
+       "reply": "Recorded your medication: Dolo 650 mg, twice daily."
      }
      ```
 

@@ -32,15 +32,18 @@ Example:
 User: "My blood sugar is 105 mg/dL after breakfast"
 AI Output:
 {
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "user_id": "current_user_id",
-  "type": "BLOOD_TEST",
-  "category": "HEALTH_PARAMS",
-  "value": "105",
-  "quantity": null,
-  "unit": "mg/dL",
-  "timestamp": 1691839200,
-  "notes": "after breakfast"
+  "parsed": true,
+  "entry": {
+    "type": "vital",
+    "category": "HEALTH_PARAMS",
+    "timestamp": 1691839200,
+    "vital": {
+      "vitalType": "glucose",
+      "value": 105,
+      "unit": "mg/dL"
+    }
+  },
+  "reply": "Recorded blood sugar: 105 mg/dL after breakfast"
 }
 
 ---
