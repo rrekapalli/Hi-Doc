@@ -54,7 +54,6 @@ flutter:
     - assets/prescriptions/
     - assets/models/
     - assets/prompts/
-    - message-parser-prompt.md
     - assets/images/hi-doc.png
 
 flutter_launcher_icons:
