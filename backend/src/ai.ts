@@ -6,7 +6,6 @@ import { join } from 'path';
 const AI_SCHEMA = z.object({
   parsed: z.boolean(),
   reply: z.string().optional(),
-  // Single unified entry (for backward compat). New "param" entry supports param_targets mapping.
   entry: z.object({
     type: z.enum(['vital', 'medication', 'labResult', 'note', 'param', 'activity']).optional(),
     category: z.enum(['HEALTH_PARAMS', 'ACTIVITY', 'FOOD', 'MEDICATION', 'SYMPTOMS', 'OTHER']).optional(),
@@ -53,11 +52,16 @@ let _healthDataTrendPrompt: string | null = null;
 let _activityDataEntryPrompt: string | null = null;
 let _medicationDataEntryPrompt: string | null = null;
 
+// Helper to get path to prompt file in assets/prompts
+function getPromptPath(promptName: string): string {
+  return join(process.cwd(), 'assets', 'prompts', promptName);
+}
+
 // Load activity data entry prompt from file
 function getActivityDataEntryPrompt(): string {
   if (!_activityDataEntryPrompt) {
     try {
-      const promptPath = join(process.cwd(), 'src', 'assets', 'activity_data_entry_prompt.txt');
+      const promptPath = getPromptPath('activity_data_entry_prompt.txt');
       _activityDataEntryPrompt = readFileSync(promptPath, 'utf-8');
       logger.debug('Loaded activity data entry prompt from file', { path: promptPath });
     } catch (error) {
@@ -72,7 +76,7 @@ function getActivityDataEntryPrompt(): string {
 function getMedicationDataEntryPrompt(): string {
   if (!_medicationDataEntryPrompt) {
     try {
-      const promptPath = join(process.cwd(), 'src', 'assets', 'medication_data_entry_prompt.txt');
+      const promptPath = getPromptPath('medication_data_entry_prompt.txt');
       _medicationDataEntryPrompt = readFileSync(promptPath, 'utf-8');
       logger.debug('Loaded medication data entry prompt from file', { path: promptPath });
     } catch (error) {
@@ -87,7 +91,7 @@ function getMedicationDataEntryPrompt(): string {
 function getHealthDataEntryPrompt(): string {
   if (!_healthDataEntryPrompt) {
     try {
-      const promptPath = join(process.cwd(), 'src', 'assets', 'health_data_entry_prompt.txt');
+      const promptPath = getPromptPath('health_data_entry_prompt.txt');
       _healthDataEntryPrompt = readFileSync(promptPath, 'utf-8');
       logger.debug('Loaded health data entry prompt from file', { path: promptPath });
     } catch (error) {
@@ -217,7 +221,7 @@ Now process the next user message.`;
 function getHealthDataTrendPrompt(): string {
   if (!_healthDataTrendPrompt) {
     try {
-      const promptPath = join(process.cwd(), 'src', 'assets', 'health_data_trend_prompt.txt');
+      const promptPath = getPromptPath('health_data_trend_prompt.txt');
       _healthDataTrendPrompt = readFileSync(promptPath, 'utf-8');
       logger.debug('Loaded health data trend prompt from file', { path: promptPath });
     } catch (error) {
