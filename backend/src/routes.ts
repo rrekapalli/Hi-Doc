@@ -6,6 +6,7 @@ import { signToken, verifyToken } from './jwtUtil.js';
 import { interpretMessage, aiProviderStatus, AiInterpretation, getHealthDataEntryPrompt, getHealthDataTrendPrompt, clearPromptCache } from './ai.js';
 import { logger } from './logger.js';
 import { verifyMicrosoftIdToken } from './msAuth.js';
+import { DbMessage } from './types.js';
 
 const router = Router();
 
@@ -824,6 +825,14 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
         .run(noteId, userId, 'labResult', category, null, null, ts, serialized);
       return { table: 'health_data', id: noteId, type: 'labResult', category, raw: serialized, timestamp: ts };
     }
+    case 'activity': {
+      if (!entry.activity || !entry.activity.name) throw new Error('activity.name missing');
+      const a = entry.activity;
+      logger.debug('DB insert activity', { name: a.name, distance: a.distance_km, duration: a.duration_minutes, intensity: a.intensity });
+      db.prepare('INSERT INTO activities (id, user_id, name, duration_minutes, distance_km, intensity, calories_burned, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, a.name, a.duration_minutes ?? null, a.distance_km ?? null, a.intensity ?? null, a.calories_burned ?? null, ts, a.notes ?? null);
+      return { table: 'activities', id, name: a.name, duration_minutes: a.duration_minutes ?? null, distance_km: a.distance_km ?? null, intensity: a.intensity ?? null, calories_burned: a.calories_burned ?? null, timestamp: ts, notes: a.notes ?? null };
+    }
     default:
       throw new Error(`Unsupported entry.type: ${entry.type}`);
   }
@@ -880,6 +889,39 @@ router.get('/api/health/:id', (req: Request, res: Response) => {
 router.delete('/api/health/:id', (req: Request, res: Response) => {
   const userId = (req as any).userId;
   const info = db.prepare('DELETE FROM health_data WHERE id = ? AND user_id = ?').run(req.params.id, userId);
+  if (info.changes === 0) return res.status(404).json({ error: 'not found' });
+  res.status(204).end();
+});
+
+// Activities CRUD
+router.get('/api/activities', (req: Request, res: Response) => {
+  const userId = (req as any).userId;
+  const limit = Math.min(Number(req.query.limit || 50), 500);
+  const offset = Number(req.query.offset || 0);
+  const start = req.query.start ? Number(req.query.start) : undefined;
+  const end = req.query.end ? Number(req.query.end) : undefined;
+  
+  let sql = 'SELECT * FROM activities WHERE user_id = ?';
+  const params: any[] = [userId];
+  if (start) { sql += ' AND timestamp >= ?'; params.push(start); }
+  if (end) { sql += ' AND timestamp <= ?'; params.push(end); }
+  sql += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+  
+  const rows = db.prepare(sql).all(...params);
+  res.json({ items: rows, paging: { limit, offset, count: rows.length } });
+});
+
+router.get('/api/activities/:id', (req: Request, res: Response) => {
+  const userId = (req as any).userId;
+  const row = db.prepare('SELECT * FROM activities WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json(row);
+});
+
+router.delete('/api/activities/:id', (req: Request, res: Response) => {
+  const userId = (req as any).userId;
+  const info = db.prepare('DELETE FROM activities WHERE id = ? AND user_id = ?').run(req.params.id, userId);
   if (info.changes === 0) return res.status(404).json({ error: 'not found' });
   res.status(204).end();
 });
@@ -1074,7 +1116,7 @@ router.post('/api/messages/reprocess-failed', async (req: Request, res: Response
   
   const results = [];
   
-  for (const msg of failedMessages) {
+  for (const msg of failedMessages as DbMessage[]) {
     try {
       logger.info('Reprocessing failed message', { messageId: msg.id, content: msg.content });
       
@@ -1138,7 +1180,7 @@ router.post('/api/messages/reprocess-failed', async (req: Request, res: Response
 // --- Generic (read-only) data browsing endpoints for UI Data page ---
 // NOTE: These are development convenience endpoints; consider securing or removing in production.
 const BROWSABLE_TABLES = [
-  'health_data', 'medications', 'reports', 'reminders', 'group_members', 'messages', 'param_targets'
+  'health_data', 'medications', 'reports', 'reminders', 'group_members', 'messages', 'param_targets', 'activities'
 ];
 
 router.get('/api/admin/tables', (_req: Request, res: Response) => {

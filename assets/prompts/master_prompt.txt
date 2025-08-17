@@ -7,67 +7,29 @@ data into the correct database table.
 
 ## Supported Categories & Linked Prompts (stored in /assets/prompts/):
 - health_data_entry_prompt.txt → For daily health parameters like blood pressure, sugar, osmolity, lymphocytes, etc.
-- medications_reminder_prompt.txt → For medications with optional alarm scheduling.
+- activity_data_entry_prompt.txt → For activities like running, swimming, yoga, gym workouts, etc.
+- medications_data_entry_prompt.txt → For medications with optional alarm scheduling.
 - reports_processing_prompt.txt → For report upload (PDF/scan), OCR extraction, and parsing.
 
 ## Master Flow
-1. Detect the category of the user's input or action:
+1. **Always save the incoming raw user message** into the `messages` table first with:
+   - `user_id`
+   - `role = 'user'`
+   - `content` = the exact message text
+   - `created_at` = current timestamp
+   - `processed = 0` initially
+   - `interpretation_json` = JSON you produce (described below)
+   - `stored_record_id` = NULL initially
+
+2. Detect the category of the user's input or action:
    - If it's a health parameter message → Use `health_data_entry_prompt` logic.
-   - If it's a medication-related message → Use `medications_reminder_prompt` logic.
+   - If it's a activity related message → Use `activity_data_entry_prompt` logic.
+   - If it's a medication-related message → Use `medications_data_entry_prompt` logic.
    - If it's a file upload or scan action → Use `reports_processing_prompt` logic.
 
-2. Execute the relevant parsing logic:
+3. Execute the relevant parsing logic:
    - Map user input directly to database table fields.
    - Save data in the correct table.
    - Trigger follow-up actions (e.g., setting alarms, asking for confirmation).
 
-3. If a category-specific prompt is used, return control to the master prompt for the next action.
-
-## New Feature: Report File Upload & OCR Processing
-**Trigger Conditions:**
-- User uploads a PDF, image, or scanned report.
-- User selects "Scan with Camera" option.
-
-**Processing Steps:**
-1. Extract text from the uploaded document using OCR.
-2. Save the raw file in the `reports` table.
-
-```sql
--- reports
-CREATE TABLE IF NOT EXISTS reports (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  file_path TEXT NOT NULL,
-  file_type TEXT NOT NULL,
-  upload_timestamp INTEGER NOT NULL,
-  notes TEXT,
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-```
-
-3. Parse the OCR-extracted text for health parameters (e.g., HbA1c, creatinine, WBC count).
-4. Map parsed results directly into the `health_data` table.
-
-```sql
--- health_data
-CREATE TABLE IF NOT EXISTS health_data (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  type TEXT NOT NULL,
-  category TEXT DEFAULT 'HEALTH_PARAMS',
-  value TEXT,
-  quantity TEXT,
-  unit TEXT,
-  timestamp INTEGER NOT NULL,
-  notes TEXT,
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-```
-
-5. Confirm with the user before finalizing data storage.
-
-## Linking With Flutter App
-- Store this master prompt in `/assets/prompts/master_prompt.txt`.
-- When user input or action is detected, load `master_prompt.txt`.
-- Based on detected category, load the corresponding category-specific prompt from `/assets/prompts/`.
-- Maintain state so that after saving data, the master prompt resumes control.
+4. If a category-specific prompt is used, return control to the master prompt for the next action.

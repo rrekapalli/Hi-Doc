@@ -8,9 +8,17 @@ const AI_SCHEMA = z.object({
   reply: z.string().optional(),
   // Single unified entry (for backward compat). New "param" entry supports param_targets mapping.
   entry: z.object({
-    type: z.enum(['vital', 'medication', 'labResult', 'note', 'param']).optional(),
+    type: z.enum(['vital', 'medication', 'labResult', 'note', 'param', 'activity']).optional(),
     category: z.enum(['HEALTH_PARAMS', 'ACTIVITY', 'FOOD', 'MEDICATION', 'SYMPTOMS', 'OTHER']).optional(),
     timestamp: z.number().optional(),
+    activity: z.object({
+      name: z.string(),
+      duration_minutes: z.number().optional(),
+      distance_km: z.number().optional(),
+      intensity: z.enum(['Low', 'Moderate', 'High']).optional(),
+      calories_burned: z.number().optional(),
+      notes: z.string().optional(),
+    }).optional(),
     vital: z.object({
       vitalType: z.enum(['glucose', 'weight', 'bloodPressure', 'temperature', 'heartRate', 'steps', 'hba1c']).optional(),
       value: z.number().optional(),
@@ -42,6 +50,38 @@ export type AiInterpretation = z.infer<typeof AI_SCHEMA>;
 // Cached prompts
 let _healthDataEntryPrompt: string | null = null;
 let _healthDataTrendPrompt: string | null = null;
+let _activityDataEntryPrompt: string | null = null;
+let _medicationDataEntryPrompt: string | null = null;
+
+// Load activity data entry prompt from file
+function getActivityDataEntryPrompt(): string {
+  if (!_activityDataEntryPrompt) {
+    try {
+      const promptPath = join(process.cwd(), 'src', 'assets', 'activity_data_entry_prompt.txt');
+      _activityDataEntryPrompt = readFileSync(promptPath, 'utf-8');
+      logger.debug('Loaded activity data entry prompt from file', { path: promptPath });
+    } catch (error) {
+      logger.warn('Failed to load activity data entry prompt from file', { error });
+      throw new Error('Activity data entry prompt not found');
+    }
+  }
+  return _activityDataEntryPrompt;
+}
+
+// Load medication data entry prompt from file
+function getMedicationDataEntryPrompt(): string {
+  if (!_medicationDataEntryPrompt) {
+    try {
+      const promptPath = join(process.cwd(), 'src', 'assets', 'medication_data_entry_prompt.txt');
+      _medicationDataEntryPrompt = readFileSync(promptPath, 'utf-8');
+      logger.debug('Loaded medication data entry prompt from file', { path: promptPath });
+    } catch (error) {
+      logger.warn('Failed to load medication data entry prompt from file', { error });
+      throw new Error('Medication data entry prompt not found');
+    }
+  }
+  return _medicationDataEntryPrompt;
+}
 
 // Load health data entry prompt from file
 function getHealthDataEntryPrompt(): string {
@@ -252,8 +292,20 @@ export async function interpretMessage(message: string): Promise<AiInterpretatio
   const model = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
   const attempts: { raw?: string; error?: string }[] = [];
   const MAX_TRIES = 2;
+  // Determine message type by keywords
+  const activityKeywords = ['walk', 'run', 'swim', 'gym', 'workout', 'exercise', 'yoga', 'cycling', 'jogging', 'km', 'miles', 'steps'];
+  const medicationKeywords = ['took', 'take', 'taken', 'dose', 'tablet', 'pill', 'medicine', 'medication', 'insulin', 'injection', 'prescribed', 'mg', 'units'];
+  
+  const isActivityMessage = activityKeywords.some(keyword => message.toLowerCase().includes(keyword));
+  const isMedicationMessage = medicationKeywords.some(keyword => message.toLowerCase().includes(keyword));
+
   let messages: ChatMessage[] = [
-    { role: 'system', content: getHealthDataEntryPrompt() },
+    { 
+      role: 'system', 
+      content: isActivityMessage ? getActivityDataEntryPrompt() : 
+               isMedicationMessage ? getMedicationDataEntryPrompt() :
+               getHealthDataEntryPrompt() 
+    },
     { role: 'user', content: message }
   ];
 
@@ -263,6 +315,21 @@ export async function interpretMessage(message: string): Promise<AiInterpretatio
     let raw: string;
     try {
       raw = await chatGptService.chat(messages, model);
+      // Replace any remaining <current_timestamp> with current time
+      raw = raw.replace(/<current_timestamp>/g, Date.now().toString());
+      
+      // Parse the JSON
+      const parsed = JSON.parse(raw);
+      
+      // Ensure timestamp is set for activities and health data
+      if (parsed.entry?.activity && !parsed.entry.timestamp) {
+        parsed.entry.timestamp = Date.now();
+      }
+      if (parsed.entry?.param && !parsed.entry.timestamp) {
+        parsed.entry.timestamp = Date.now();
+      }
+      
+      raw = JSON.stringify(parsed);
     } catch (e: any) {
       if (verbose) logger.error('AI request failure', { error: String(e) });
       return { parsed: false, reply: 'ChatGPT API error', reasoning: String(e.message || e) };

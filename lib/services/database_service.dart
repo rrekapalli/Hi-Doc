@@ -8,7 +8,7 @@ import '../models/message.dart';
 
 class DatabaseService {
   static const _dbName = 'hi_doc.db';
-  static const _dbVersion = 3; // bump for messages table
+  static const _dbVersion = 4; // bump for activities table
   Database? _db;
   bool _inMemory = false; // Web fallback
 
@@ -37,6 +37,8 @@ class DatabaseService {
     await db.execute('''CREATE TABLE reminders (\n      id TEXT PRIMARY KEY,\n      title TEXT,\n      body TEXT,\n      scheduled_at INTEGER\n    )''');
     await db.execute('''CREATE TABLE parsed_parameters (\n      id TEXT PRIMARY KEY,\n      message_id TEXT,\n      category TEXT,\n      parameter TEXT,\n      value TEXT,\n      unit TEXT,\n      datetime TEXT,\n      raw_json TEXT\n    )''');
     await db.execute('''CREATE TABLE messages (\n      id TEXT PRIMARY KEY,\n      role TEXT,\n      content TEXT,\n      created_at INTEGER,\n      person_id TEXT\n    )''');
+    
+    await db.execute('''CREATE TABLE activities (\n      id TEXT PRIMARY KEY,\n      user_id TEXT,\n      name TEXT,\n      duration_minutes INTEGER,\n      distance_km REAL,\n      intensity TEXT,\n      calories_burned REAL,\n      timestamp INTEGER,\n      notes TEXT\n    )''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -45,6 +47,9 @@ class DatabaseService {
     }
     if (oldVersion < 3) {
       await db.execute('''CREATE TABLE IF NOT EXISTS messages (\n        id TEXT PRIMARY KEY,\n        role TEXT,\n        content TEXT,\n        created_at INTEGER,\n        person_id TEXT\n      )''');
+    }
+    if (oldVersion < 4) {
+      await db.execute('''CREATE TABLE IF NOT EXISTS activities (\n        id TEXT PRIMARY KEY,\n        user_id TEXT,\n        name TEXT,\n        duration_minutes INTEGER,\n        distance_km REAL,\n        intensity TEXT,\n        calories_burned REAL,\n        timestamp INTEGER,\n        notes TEXT\n      )''');
     }
   }
 
