@@ -66,19 +66,20 @@ class _MedicationScheduleScreenState extends State<MedicationScheduleScreen> {
     final db = context.read<DatabaseService>();
     
     try {
-      // Use a temporary user ID until authentication is implemented
-      const String tempUserId = 'temp_user';
+      // Use prototype user ID for now to match backend
+      const userId = 'prototype-user-12345';
+      
+      debugPrint('Saving schedule for medication: ${widget.medication['id']}');
+      debugPrint('Current times: ${_times.length}');
       
       // Delete existing reminders for this medication
       await db.deleteRemindersForMedication(widget.medication['id'] as String);
-
-      // Delete existing reminders for this medication
-      await db.deleteRemindersForMedication(widget.medication['id'] as String);
+      debugPrint('Deleted existing reminders');
       
       // Add new reminders
       for (final time in _times) {
-        await db.insertReminder({
-          'user_id': tempUserId,
+        final reminderData = {
+          'user_id': userId,
           'medication_id': widget.medication['id'],
           'title': widget.medication['name'],
           'time': '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
@@ -91,7 +92,10 @@ class _MedicationScheduleScreenState extends State<MedicationScheduleScreen> {
               .map((e) => (e.key + 1).toString())
               .join(','),
           'active': 1,
-        });
+        };
+        
+        debugPrint('Inserting reminder: $reminderData');
+        await db.insertReminder(reminderData);
       }
 
       // Update notifications

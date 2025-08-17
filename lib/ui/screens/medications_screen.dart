@@ -6,6 +6,7 @@ import '../../models/health_entry.dart';
 import 'user_settings_screen.dart';
 import 'debug_entries_screen.dart';
 import 'medication_schedule_screen.dart';
+import 'edit_medication_screen.dart';
 import '../common/hi_doc_app_bar.dart';
 
 class MedicationsScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class MedicationsScreen extends StatefulWidget {
 
 class _MedicationsScreenState extends State<MedicationsScreen> {
   final _scrollController = ScrollController();
+  bool _showDeleted = false;
 
   @override
   Widget build(BuildContext context) {
@@ -39,121 +41,192 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: db.getMedications(),
-        builder: (ctx, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final medications = snap.data ?? [];
-          
-          if (medications.isEmpty) {
-            return const Center(child: Text('No medications yet'));
-          }
-          
-          return ListView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(16),
-            itemCount: medications.length,
-            itemBuilder: (ctx, i) {
-              final med = medications[i];
-              
-              return Card(
-                margin: const EdgeInsets.only(bottom: 16),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.medication_outlined, size: 24),
-                          const SizedBox(width: 8),
-                          Text(
-                            med['name'] as String? ?? 'Unknown Medication',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Dosage',
-                                style: Theme.of(context).textTheme.labelMedium,
-                              ),
-                              Text(
-                                med['dosage'] != null
-                                  ? med['dosage'] as String
-                                  : 'Not specified',
-                                style: Theme.of(context).textTheme.bodyLarge,
-                              ),
-                            ],
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                'Schedule',
-                                style: Theme.of(context).textTheme.labelMedium,
-                              ),
-                              Text(
-                                med['schedule'] as String? ?? 'Not specified',
-                                style: Theme.of(context).textTheme.bodyLarge,
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Duration',
-                        style: Theme.of(context).textTheme.labelMedium,
-                      ),
-                      Text(
-                        med['is_forever'] == 1
-                            ? 'Ongoing'
-                            : med['duration_days'] != null
-                                ? '${med['duration_days']} days'
-                                : 'Not specified',
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            med['start_date'] != null
-                              ? 'Started: ${_formatDate(DateTime.fromMillisecondsSinceEpoch(med['start_date'] as int))}'
-                              : 'Not started',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          FilledButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => MedicationScheduleScreen(medication: med),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.schedule, size: 18),
-                            label: const Text('Schedule'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                const Text('Show Previous Medications'),
+                const SizedBox(width: 8),
+                Switch(
+                  value: _showDeleted,
+                  onChanged: (value) {
+                    setState(() {
+                      _showDeleted = value;
+                    });
+                  },
                 ),
-              );
-            },
-          );
-        },
+              ],
+            ),
+          ),
+          Expanded(
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: db.getMedications(includeDeleted: _showDeleted),
+              builder: (ctx, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final medications = snap.data ?? [];
+                
+                if (medications.isEmpty) {
+                  return const Center(child: Text('No medications yet'));
+                }
+                
+                return ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: medications.length,
+                  itemBuilder: (ctx, i) {
+                    final med = medications[i];
+                    final isDeleted = med['is_deleted'] == 1;
+                    
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      color: isDeleted ? Colors.grey.shade200 : null,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.medication_outlined, size: 24),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          med['name'] as String? ?? 'Unknown Medication',
+                                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (!isDeleted) Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton.filledTonal(
+                                      icon: const Icon(Icons.schedule, size: 20),
+                                      tooltip: 'Schedule',
+                                      onPressed: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => MedicationScheduleScreen(medication: med),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton.filledTonal(
+                                      icon: const Icon(Icons.edit, size: 20),
+                                      tooltip: 'Edit',
+                                      onPressed: () async {
+                                        final updated = await Navigator.of(context).push<bool>(
+                                          MaterialPageRoute(
+                                            builder: (_) => EditMedicationScreen(medication: med),
+                                          ),
+                                        );
+                                        if (updated == true) {
+                                          setState(() {}); // Refresh the list
+                                        }
+                                      },
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton.filledTonal(
+                                      icon: const Icon(Icons.delete_outline, size: 20),
+                                      tooltip: 'Delete',
+                                      onPressed: () async {
+                                        final confirmed = await showDialog<bool>(
+                                          context: context,
+                                          builder: (context) => AlertDialog(
+                                            title: const Text('Delete Medication'),
+                                            content: Text('Are you sure you want to delete ${med['name']}?'),
+                                            actions: [
+                                              TextButton(
+                                                child: const Text('Cancel'),
+                                                onPressed: () => Navigator.of(context).pop(false),
+                                              ),
+                                              TextButton(
+                                                child: const Text('Delete'),
+                                                onPressed: () => Navigator.of(context).pop(true),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        
+                                        if (confirmed == true) {
+                                          await db.deleteMedication(med['id'] as String);
+                                          setState(() {});
+                                        }
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Dosage',
+                                  style: Theme.of(context).textTheme.labelMedium,
+                                ),
+                                Text(
+                                  med['dosage'] != null
+                                    ? med['dosage'] as String
+                                    : 'Not specified',
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Schedule Type',
+                                  style: Theme.of(context).textTheme.labelMedium,
+                                ),
+                                Text(
+                                  med['schedule_type'] == 'continuous'
+                                      ? 'Continuous'
+                                      : med['schedule_type'] == 'as_needed'
+                                          ? 'As Needed'
+                                          : 'Fixed Schedule',
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                                if (med['schedule_type'] == 'fixed' && med['from_date'] != null && med['to_date'] != null) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Duration',
+                                    style: Theme.of(context).textTheme.labelMedium,
+                                  ),
+                                  Text(
+                                    '${_formatDate(DateTime.fromMillisecondsSinceEpoch(med['from_date'] as int))} - '
+                                    '${_formatDate(DateTime.fromMillisecondsSinceEpoch(med['to_date'] as int))}',
+                                    style: Theme.of(context).textTheme.bodyLarge,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

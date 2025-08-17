@@ -100,18 +100,25 @@ class NotificationService {
       timeComponents[1],
     );
 
+    // First, handle weekly schedule
     if (days != null && days.isNotEmpty) {
-      while (!days.contains(scheduledDate.weekday)) {
-        scheduledDate = scheduledDate.add(const Duration(days: 1));
+      // If the current day is not in the selected days, find the next valid day
+      if (!days.contains(scheduledDate.weekday)) {
+        do {
+          scheduledDate = scheduledDate.add(const Duration(days: 1));
+        } while (!days.contains(scheduledDate.weekday));
       }
     }
 
+    // Then check if the time has already passed today
     if (scheduledDate.isBefore(now)) {
       if (days != null && days.isNotEmpty) {
+        // For weekly schedule, find the next occurrence on a selected day
         do {
           scheduledDate = scheduledDate.add(const Duration(days: 1));
         } while (!days.contains(scheduledDate.weekday));
       } else {
+        // For daily schedule, just move to tomorrow
         scheduledDate = tz.TZDateTime(
           tz.local,
           now.year,
@@ -141,6 +148,9 @@ class NotificationService {
     }
 
     try {
+      // Cancel any existing notification with this ID first
+      await cancelNotification(id);
+
       final List<int>? weekDays = days?.split(',').map(int.parse).toList();
       final notificationTime = _nextInstanceOfTime(time, days: weekDays);
 

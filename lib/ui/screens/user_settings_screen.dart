@@ -37,27 +37,33 @@ class _ProfileTab extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       child: ListView(
         children: [
-          if (user != null) ...[
-            CircleAvatar(
-              radius: 40,
-              backgroundImage: user.photoURL != null ? NetworkImage(user.photoURL!) : null,
-              child: user.photoURL == null ? const Icon(Icons.person, size: 48) : null,
+          if (user != null)
+            Column(
+              children: [
+                const CircleAvatar(
+                  radius: 36,
+                  child: Icon(Icons.person, size: 48),
+                ),
+                const SizedBox(height: 16),
+                Text(user.displayName ?? 'Unnamed User', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 4),
+                Text(user.email ?? '', style: Theme.of(context).textTheme.bodyMedium),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () => auth.signOut(),
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Sign out'),
+                ),
+              ],
+            )
+          else
+            Column(
+              children: const [
+                Icon(Icons.person_off, size: 72, color: Colors.grey),
+                SizedBox(height: 16),
+                Text('Not signed in', textAlign: TextAlign.center),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(user.displayName ?? 'Unnamed User', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 4),
-            Text(user.email ?? '', style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () => auth.signOut(),
-              icon: const Icon(Icons.logout),
-              label: const Text('Sign out'),
-            ),
-          ] else ...[
-            const Icon(Icons.person_off, size: 72, color: Colors.grey),
-            const SizedBox(height: 16),
-            const Text('Not signed in', textAlign: TextAlign.center),
-          ],
         ],
       ),
     );
