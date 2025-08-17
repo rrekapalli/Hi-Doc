@@ -57,11 +57,15 @@ CREATE TABLE IF NOT EXISTS reports (
 CREATE TABLE IF NOT EXISTS reminders (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
+  medication_id TEXT,
   title TEXT NOT NULL,
   time TEXT NOT NULL,
   message TEXT,
-  repeat TEXT,
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  repeat TEXT, -- daily, weekly, custom
+  days TEXT,   -- comma-separated list of days (1-7) for weekly schedule
+  active INTEGER DEFAULT 1,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(medication_id) REFERENCES medications(id) ON DELETE CASCADE
 );
 
 

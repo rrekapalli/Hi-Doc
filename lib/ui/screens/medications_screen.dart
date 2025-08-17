@@ -5,6 +5,7 @@ import '../../services/database_service.dart';
 import '../../models/health_entry.dart';
 import 'user_settings_screen.dart';
 import 'debug_entries_screen.dart';
+import 'medication_schedule_screen.dart';
 import '../common/hi_doc_app_bar.dart';
 
 class MedicationsScreen extends StatefulWidget {
@@ -125,13 +126,24 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
                       ),
                       const SizedBox(height: 8),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
                             med['start_date'] != null
                               ? 'Started: ${_formatDate(DateTime.fromMillisecondsSinceEpoch(med['start_date'] as int))}'
                               : 'Not started',
                             style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          FilledButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => MedicationScheduleScreen(medication: med),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.schedule, size: 18),
+                            label: const Text('Schedule'),
                           ),
                         ],
                       ),

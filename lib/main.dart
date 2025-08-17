@@ -6,6 +6,7 @@ import 'providers/auth_provider.dart';
 import 'providers/settings_provider.dart';
 import 'services/database_service.dart';
 import 'services/auth_service.dart';
+import 'services/notification_service.dart';
 import 'ui/screens/home_shell.dart';
 import 'ui/screens/login_screen.dart';
 import 'config/app_config.dart';
@@ -21,7 +22,12 @@ void main() async {
   }
   
   // Initialize services
-  final db = DatabaseService();
+  final notificationService = NotificationService();
+  if (!kIsWeb) {
+    await notificationService.init();
+  }
+  
+  final db = DatabaseService(notificationService: notificationService);
   await db.init();
   final authService = AuthService();
   
@@ -47,6 +53,7 @@ class HiDocApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         Provider<DatabaseService>.value(value: db),
+        Provider<AuthService>.value(value: authService),
         ChangeNotifierProvider(create: (_) => AuthProvider(authService)),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(create: (_) => ChatProvider(db: db)),

@@ -5,16 +5,22 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 import '../config/app_config.dart';
 import '../models/health_entry.dart';
 import '../models/message.dart';
+import 'notification_service.dart';
 import '../services/auth_service.dart';
 
 class DatabaseService {
   static const _dbName = 'hi_doc.db';
-  static const _dbVersion = 4; // bump for activities table
+  static const _dbVersion = 5; // bump for reminders table update
   Database? _db;
   bool _inMemory = false; // Web fallback
+  final NotificationService _notificationService;
+
+  DatabaseService({required NotificationService notificationService})
+      : _notificationService = notificationService;
 
   // In-memory stores for web fallback
   final List<HealthEntry> _entries = [];
@@ -39,7 +45,17 @@ class DatabaseService {
     await db.execute('''CREATE TABLE groups (\n      id TEXT PRIMARY KEY,\n      name TEXT,\n      owner_user_id TEXT,\n      data TEXT\n    )''');
     await db.execute('''CREATE TABLE medications (\n      id TEXT PRIMARY KEY,\n      name TEXT,\n      dose REAL,\n      dose_unit TEXT,\n      frequency_per_day INTEGER,\n      duration_days INTEGER,\n      start_date INTEGER\n    )''');
     await db.execute('''CREATE TABLE reports (\n      id TEXT PRIMARY KEY,\n      file_path TEXT,\n      type TEXT,\n      data TEXT,\n      upload_date INTEGER\n    )''');
-    await db.execute('''CREATE TABLE reminders (\n      id TEXT PRIMARY KEY,\n      title TEXT,\n      body TEXT,\n      scheduled_at INTEGER\n    )''');
+    await db.execute('''CREATE TABLE reminders (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      medication_id TEXT,
+      title TEXT,
+      time TEXT,
+      message TEXT,
+      repeat TEXT,
+      days TEXT,
+      active INTEGER DEFAULT 1
+    )''');
     await db.execute('''CREATE TABLE parsed_parameters (\n      id TEXT PRIMARY KEY,\n      message_id TEXT,\n      category TEXT,\n      parameter TEXT,\n      value TEXT,\n      unit TEXT,\n      datetime TEXT,\n      raw_json TEXT\n    )''');
     await db.execute('''CREATE TABLE messages (\n      id TEXT PRIMARY KEY,\n      role TEXT,\n      content TEXT,\n      created_at INTEGER,\n      person_id TEXT\n    )''');
     
@@ -54,7 +70,32 @@ class DatabaseService {
       await db.execute('''CREATE TABLE IF NOT EXISTS messages (\n        id TEXT PRIMARY KEY,\n        role TEXT,\n        content TEXT,\n        created_at INTEGER,\n        person_id TEXT\n      )''');
     }
     if (oldVersion < 4) {
-      await db.execute('''CREATE TABLE IF NOT EXISTS activities (\n        id TEXT PRIMARY KEY,\n        user_id TEXT,\n        name TEXT,\n        duration_minutes INTEGER,\n        distance_km REAL,\n        intensity TEXT,\n        calories_burned REAL,\n        timestamp INTEGER,\n        notes TEXT\n      )''');
+      await db.execute('''CREATE TABLE IF NOT EXISTS activities (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        name TEXT,
+        duration_minutes INTEGER,
+        distance_km REAL,
+        intensity TEXT,
+        calories_burned REAL,
+        timestamp INTEGER,
+        notes TEXT
+      )''');
+    }
+    if (oldVersion < 5) {
+      // Drop and recreate reminders table with new schema
+      await db.execute('DROP TABLE IF EXISTS reminders');
+      await db.execute('''CREATE TABLE reminders (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        medication_id TEXT,
+        title TEXT,
+        time TEXT,
+        message TEXT,
+        repeat TEXT,
+        days TEXT,
+        active INTEGER DEFAULT 1
+      )''');
     }
   }
 
@@ -195,6 +236,86 @@ class DatabaseService {
     return rows.map((r) => r).toList();
   }
 
+  Future<List<Map<String, dynamic>>> getRemindersByMedicationId(String medicationId) async {
+    if (_inMemory) {
+      // In memory mode would need to be implemented for testing
+      return [];
+    }
+    final db = _ensure();
+    final rows = await db.query(
+      'reminders',
+      where: 'medication_id = ? AND active = 1',
+      whereArgs: [medicationId],
+      orderBy: 'time ASC',
+    );
+    return rows;
+  }
+
+  Future<void> deleteRemindersForMedication(String medicationId) async {
+    if (_inMemory) {
+      return;
+    }
+    final db = _ensure();
+    await db.delete(
+      'reminders',
+      where: 'medication_id = ?',
+      whereArgs: [medicationId],
+    );
+  }
+
+  Future<void> insertReminder(Map<String, dynamic> reminder) async {
+    if (_inMemory) {
+      return;
+    }
+    final db = _ensure();
+    final reminderId = const Uuid().v4();
+    await db.insert('reminders', {
+      'id': reminderId,
+      'user_id': reminder['user_id'],
+      'medication_id': reminder['medication_id'],
+      'title': reminder['title'],
+      'time': reminder['time'],
+      'message': reminder['message'],
+      'repeat': reminder['repeat'],
+      'days': reminder['days'],
+      'active': reminder['active'] ?? 1,
+    });
+
+    // Schedule the notification
+    await _notificationService.scheduleMedicationReminder(
+      id: reminderId,
+      title: reminder['title'],
+      message: reminder['message'],
+      time: reminder['time'],
+      repeat: reminder['repeat'],
+      days: reminder['days'],
+    );
+  }
+
+  Future<void> updateMedicationReminders(String medicationId) async {
+    if (_inMemory) return;
+
+    final db = _ensure();
+    final reminders = await getRemindersByMedicationId(medicationId);
+
+    // Cancel existing notifications
+    for (final reminder in reminders) {
+      await _notificationService.cancelNotification(reminder['id'] as String);
+    }
+
+    // Schedule new notifications for active reminders
+    for (final reminder in reminders.where((r) => r['active'] == 1)) {
+      await _notificationService.scheduleMedicationReminder(
+        id: reminder['id'] as String,
+        title: reminder['title'] as String,
+        message: reminder['message'] as String,
+        time: reminder['time'] as String,
+        repeat: reminder['repeat'] as String,
+        days: reminder['days'] as String?,
+      );
+    }
+  }
+
   Future<void> insertReport(Map<String, dynamic> report) async {
     if (_inMemory) {
       _reports.add(Map<String, dynamic>.from(report));
@@ -218,26 +339,12 @@ class DatabaseService {
     return db.query('reports', orderBy: 'upload_date DESC');
   }
 
-  Future<void> insertReminder(Map<String, dynamic> reminder) async {
-    if (_inMemory) {
-      _reminders.add(Map<String, dynamic>.from(reminder));
-      return;
-    }
-    final db = _ensure();
-    await db.insert('reminders', {
-      'id': reminder['id'],
-      'title': reminder['title'],
-      'body': reminder['body'],
-      'scheduled_at': reminder['scheduledAt'],
-    });
-  }
-
   Future<List<Map<String, dynamic>>> listReminders() async {
     if (_inMemory) {
       return List<Map<String, dynamic>>.from(_reminders);
     }
     final db = _ensure();
-    return db.query('reminders', orderBy: 'scheduled_at ASC');
+    return db.query('reminders', orderBy: 'time ASC');
   }
 
   // --- Message operations ---
