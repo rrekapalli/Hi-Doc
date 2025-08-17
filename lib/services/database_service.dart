@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import '../config/app_config.dart';
 import '../models/health_entry.dart';
 import '../models/message.dart';
+import '../services/auth_service.dart';
 
 class DatabaseService {
   static const _dbName = 'hi_doc.db';
@@ -25,7 +29,8 @@ class DatabaseService {
       _inMemory = true;
       return;
     }
-    final path = p.join(await getDatabasesPath(), _dbName);
+    final appDir = await getApplicationDocumentsDirectory();
+    final path = p.join(appDir.path, _dbName);
     _db = await openDatabase(path, version: _dbVersion, onCreate: _onCreate, onUpgrade: _onUpgrade);
   }
 
@@ -249,6 +254,49 @@ class DatabaseService {
       'created_at': message.createdAt.millisecondsSinceEpoch,
       'person_id': personId,
     });
+  }
+
+  Future<List<Map<String, dynamic>>> getMedications() async {
+    if (_inMemory) {
+      try {
+        final response = await http.get(
+          Uri.parse('${AppConfig.backendBaseUrl}/api/medications'),
+          headers: await _getAuthHeaders(),
+        );
+        
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          return data.cast<Map<String, dynamic>>();
+        } else {
+          debugPrint('Failed to fetch medications: ${response.statusCode}');
+          return [];
+        }
+      } catch (e) {
+        debugPrint('Failed to fetch medications: $e');
+        return [];
+      }
+    }
+    
+    try {
+      final db = _ensure();
+      final rows = await db.query(
+        'medications',
+        orderBy: 'start_date DESC',
+      );
+      return rows;
+    } catch (e) {
+      debugPrint('Failed to fetch medications: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, String>> _getAuthHeaders() async {
+    final authService = AuthService();
+    final token = await authService.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token'
+    };
   }
 
   Future<List<Message>> getMessages({int limit = 100, String? personId}) async {

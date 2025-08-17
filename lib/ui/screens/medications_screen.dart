@@ -38,27 +38,24 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<List<HealthEntry>>(
-        future: db.listAllEntries(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: db.getMedications(),
         builder: (ctx, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          final items = snap.data?.where((e) => e.type == HealthEntryType.medication).toList() ?? [];
-          items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+          final medications = snap.data ?? [];
           
-          if (items.isEmpty) {
+          if (medications.isEmpty) {
             return const Center(child: Text('No medications yet'));
           }
           
           return ListView.builder(
             controller: _scrollController,
             padding: const EdgeInsets.all(16),
-            itemCount: items.length,
+            itemCount: medications.length,
             itemBuilder: (ctx, i) {
-              final e = items[i];
-              final med = e.medication;
-              if (med == null) return const SizedBox.shrink();
+              final med = medications[i];
               
               return Card(
                 margin: const EdgeInsets.only(bottom: 16),
@@ -72,7 +69,7 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
                           const Icon(Icons.medication_outlined, size: 24),
                           const SizedBox(width: 8),
                           Text(
-                            med.name,
+                            med['name'] as String? ?? 'Unknown Medication',
                             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
@@ -91,8 +88,8 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
                                 style: Theme.of(context).textTheme.labelMedium,
                               ),
                               Text(
-                                med.dose != null 
-                                  ? '${med.dose}${med.doseUnit != null ? ' ${med.doseUnit}' : ''}'
+                                med['dosage'] != null
+                                  ? med['dosage'] as String
                                   : 'Not specified',
                                 style: Theme.of(context).textTheme.bodyLarge,
                               ),
@@ -102,13 +99,11 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text(
-                                'Frequency',
+                                'Schedule',
                                 style: Theme.of(context).textTheme.labelMedium,
                               ),
                               Text(
-                                med.frequencyPerDay != null 
-                                  ? '${med.frequencyPerDay}x daily'
-                                  : 'Not specified',
+                                med['schedule'] as String? ?? 'Not specified',
                                 style: Theme.of(context).textTheme.bodyLarge,
                               ),
                             ],
@@ -121,9 +116,11 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
                         style: Theme.of(context).textTheme.labelMedium,
                       ),
                       Text(
-                        med.durationDays != null 
-                            ? '${med.durationDays} days'
-                            : 'Ongoing',
+                        med['is_forever'] == 1
+                            ? 'Ongoing'
+                            : med['duration_days'] != null
+                                ? '${med['duration_days']} days'
+                                : 'Not specified',
                         style: Theme.of(context).textTheme.bodyLarge,
                       ),
                       const SizedBox(height: 8),
@@ -131,7 +128,9 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           Text(
-                            'Started: ${_formatDate(e.timestamp)}',
+                            med['start_date'] != null
+                              ? 'Started: ${_formatDate(DateTime.fromMillisecondsSinceEpoch(med['start_date'] as int))}'
+                              : 'Not started',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],

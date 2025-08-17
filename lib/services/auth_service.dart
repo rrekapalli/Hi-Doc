@@ -23,9 +23,19 @@ class AuthService {
 
   User? get currentUser => _auth?.currentUser;
 
+  Future<String?> getIdToken() async {
+    if (kIsWeb) {
+      // For web, get the token from secure storage
+      return await _secure.read(key: 'auth_token');
+    } else {
+      // For mobile, get the token from Firebase
+      return await _auth?.currentUser?.getIdToken();
+    }
+  }
+
   Future<void> initFirebase({FirebaseOptions? options}) async {
-  if (_auth == null) return; // web
-  if (Firebase.apps.isEmpty) {
+    if (_auth == null) return; // web
+    if (Firebase.apps.isEmpty) {
       if (options != null) {
         await Firebase.initializeApp(options: options);
       } else {
