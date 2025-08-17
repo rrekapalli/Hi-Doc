@@ -57,13 +57,31 @@ CREATE TABLE IF NOT EXISTS reports (
 CREATE TABLE IF NOT EXISTS reminders (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
+  medication_id TEXT,
   title TEXT NOT NULL,
   time TEXT NOT NULL,
   message TEXT,
-  repeat TEXT,
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  repeat TEXT, -- daily, weekly, custom
+  days TEXT,   -- comma-separated list of days (1-7) for weekly schedule
+  active INTEGER DEFAULT 1,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(medication_id) REFERENCES medications(id) ON DELETE CASCADE
 );
 
+
+-- activities  
+CREATE TABLE IF NOT EXISTS activities (  
+  id TEXT PRIMARY KEY,  
+  user_id TEXT NOT NULL,  
+  name TEXT NOT NULL,               -- e.g., Walking, Running, Swimming, Gym Workout  
+  duration_minutes INTEGER,          -- e.g., 45 (minutes)  
+  distance_km REAL,                  -- e.g., 5.2 (km if applicable)  
+  intensity TEXT,                    -- e.g., Low, Moderate, High  
+  calories_burned REAL,              -- e.g., 300 kcal (if provided or estimated)  
+  timestamp INTEGER NOT NULL,        -- epoch time  
+  notes TEXT,                        -- any additional notes provided by user  
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE  
+);
 
 CREATE INDEX IF NOT EXISTS idx_health_data_user_ts ON health_data(user_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_health_data_category ON health_data(category);
@@ -100,6 +118,7 @@ CREATE TABLE IF NOT EXISTS parsed_parameters (
 );
 CREATE INDEX IF NOT EXISTS idx_parsed_params_message ON parsed_parameters(message_id);
 CREATE INDEX IF NOT EXISTS idx_parsed_params_category ON parsed_parameters(category);
+
 
 -- Global parameter targets / reference ranges (application-level)
 CREATE TABLE IF NOT EXISTS param_targets (

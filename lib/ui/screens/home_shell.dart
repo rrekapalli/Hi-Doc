@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../chat/chat_screen.dart';
-import 'medications_screen.dart';
+import './medications_screen.dart';
 import 'reports_screen.dart';
 import 'group_screen.dart';
 import 'debug_entries_screen.dart';

@@ -25,6 +25,55 @@ The input will be OCR-extracted text from medical reports, which may include:
   "requiresConfirmation": "boolean" // Whether user confirmation is needed
 }
 
+**Trigger Conditions:**
+- User uploads a PDF, image, or scanned report.
+- User selects "Scan with Camera" option.
+
+**Processing Steps:**
+1. Extract text from the uploaded document using OCR.
+2. Save the raw file in the `reports` table.
+
+```sql
+-- reports
+CREATE TABLE IF NOT EXISTS reports (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_type TEXT NOT NULL,
+  upload_timestamp INTEGER NOT NULL,
+  notes TEXT,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+```
+
+3. Parse the OCR-extracted text for health parameters (e.g., HbA1c, creatinine, WBC count).
+4. Map parsed results directly into the `health_data` table.
+
+```sql
+-- health_data
+CREATE TABLE IF NOT EXISTS health_data (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  category TEXT DEFAULT 'HEALTH_PARAMS',
+  value TEXT,
+  quantity TEXT,
+  unit TEXT,
+  timestamp INTEGER NOT NULL,
+  notes TEXT,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+```
+
+5. Confirm with the user before finalizing data storage.
+
+## Linking With Flutter App
+- Store this master prompt in `/assets/prompts/master_prompt.txt`.
+- When user input or action is detected, load `master_prompt.txt`.
+- Based on detected category, load the corresponding category-specific prompt from `/assets/prompts/`.
+- Maintain state so that after saving data, the master prompt resumes control.
+
+
 ## Processing Rules
 1. Identify the report type from the header or content.
 2. Look for standard medical parameters and their values.
@@ -33,19 +82,7 @@ The input will be OCR-extracted text from medical reports, which may include:
 5. Flag any uncertain extractions for user confirmation.
 
 ## Parameter Dictionary
-Common parameters to look for:
-- HbA1c (%)
-- Creatinine (mg/dL)
-- Blood Glucose (mg/dL)
-- WBC Count (cells/mcL)
-- Hemoglobin (g/dL)
-- Total Cholesterol (mg/dL)
-- HDL Cholesterol (mg/dL)
-- LDL Cholesterol (mg/dL)
-- Triglycerides (mg/dL)
-- Blood Pressure (mmHg)
-- Heart Rate (bpm)
-- Temperature (°F/°C)
+1. Use 'param_targets', table in the database that has all the paramaters and their refernces values. 
 
 ## Special Instructions
 1. Always maintain medical data accuracy.
