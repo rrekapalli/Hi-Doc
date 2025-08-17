@@ -9,10 +9,12 @@ import { migrate } from './db.js';
 import { logger } from './logger.js';
 import { randomUUID } from 'crypto';
 
-// Check if OpenAI API key is set
+// Check required environment variables
 if (!process.env.OPENAI_API_KEY) {
-  logger.warn('OpenAI API key not set. ChatGPT features will be disabled.');
+  logger.warn('OpenAI API key not set - AI features will be disabled');
 }
+
+logger.info('Starting Hi-Doc backend service');
 
 const app = express();
 app.use(cors());

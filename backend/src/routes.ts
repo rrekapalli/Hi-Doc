@@ -6,7 +6,15 @@ import { signToken, verifyToken } from './jwtUtil.js';
 import { interpretMessage, aiProviderStatus, AiInterpretation, getHealthDataEntryPrompt, getHealthDataTrendPrompt, clearPromptCache } from './ai.js';
 import { logger } from './logger.js';
 import { verifyMicrosoftIdToken } from './msAuth.js';
-import { DbMessage } from './types.js';
+interface DbMessage {
+  id: string;
+  user_id: string;
+  role: 'user' | 'system' | 'assistant';
+  content: string;
+  created_at: number;
+  processed?: number;
+  interpretation_json?: string;
+}
 
 const router = Router();
 
@@ -186,7 +194,9 @@ router.get('/api/ai/status', (_req: Request, res: Response) => {
 router.post('/api/ai/reload-prompts', (_req: Request, res: Response) => {
   try {
     clearPromptCache();
-    // Test loading both prompts
+    logger.info('Prompt cache cleared');
+    
+    // Validate prompts by loading them
     const entryPrompt = getHealthDataEntryPrompt();
     const trendPrompt = getHealthDataTrendPrompt();
     res.json({ 

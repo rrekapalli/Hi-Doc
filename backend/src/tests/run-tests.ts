@@ -24,7 +24,16 @@ async function createApp() {
 
   let pass = 0, fail = 0;
   function log(ok: boolean, name: string, detail?: any) {
-    if (ok) { pass++; console.log('✅', name); } else { fail++; console.error('❌', name, detail || ''); }
+    if (ok) { 
+      pass++; 
+      console.log('✅', name); 
+    } else { 
+      fail++; 
+      console.error('❌', name); 
+      if (detail) {
+        console.error('   Details:', detail);
+      }
+    }
   }
 
   try {

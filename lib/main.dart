@@ -29,12 +29,10 @@ void main() async {
     await authService.initFirebase();
   } catch (e) {
     // Firebase not configured; proceed without remote auth (Google sign-in may fail)
-    debugPrint('Firebase init skipped: $e');
+    debugPrint('Firebase initialization skipped: $e');
   }
   
-  // Debug backend URL
-  // ignore: avoid_print
-  print('Hi-Doc backend URL: ${AppConfig.backendBaseUrl}');
+  debugPrint('Hi-Doc backend URL: ${AppConfig.backendBaseUrl}');
   
   runApp(HiDocApp(db: db, authService: authService));
 }

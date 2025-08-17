@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import '../models/health_entry.dart';
@@ -110,14 +111,15 @@ class AiService {
     http.Response resp;
     try {
       resp = await http.post(storeUri, headers: headers, body: jsonEncode({'message': message})).timeout(const Duration(seconds: 10));
+      
+      if (resp.statusCode != 200 && resp.statusCode != 201) {
+        debugPrint('AIService interpret-store failed with status: ${resp.statusCode}');
+        _lastBackendFailure = DateTime.now();
+        return null;
+      }
     } catch (e) {
+      debugPrint('AIService interpret-store request failed: $e');
       _lastBackendFailure = DateTime.now();
-      return null;
-    }
-    
-    if (resp.statusCode != 200 && resp.statusCode != 201) {
-      // ignore: avoid_print
-      print('AIService interpret-store failed: ${resp.statusCode} ${resp.body}');
       return null;
     }
     
@@ -125,10 +127,16 @@ class AiService {
       final jsonMap = jsonDecode(resp.body) as Map<String, dynamic>;
       final interpretation = jsonMap['interpretation'] as Map<String, dynamic>?;
       final entryMap = interpretation != null ? interpretation['entry'] as Map<String, dynamic>? : null;
+      
       HealthEntry? entry;
       if (entryMap != null) {
-        try { entry = HealthEntry.fromJson(entryMap); } catch (_) {}
+        try { 
+          entry = HealthEntry.fromJson(entryMap); 
+        } catch (e) {
+          debugPrint('Failed to parse health entry: $e');
+        }
       }
+      
       final reply = interpretation != null ? interpretation['reply'] as String? : null;
       final storedId = jsonMap['storedId'] as String?;
       final reasoning = interpretation != null ? interpretation['reasoning'] as String? : null;

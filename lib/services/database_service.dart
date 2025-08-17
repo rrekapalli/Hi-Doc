@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import '../models/health_entry.dart';
@@ -21,7 +21,7 @@ class DatabaseService {
 
   Future<void> init() async {
     if (kIsWeb) {
-      // sqflite not supported directly on web; using simple in-memory fallback.
+      debugPrint('SQLite not supported on web, using in-memory fallback storage');
       _inMemory = true;
       return;
     }
