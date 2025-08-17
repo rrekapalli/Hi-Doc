@@ -3,54 +3,76 @@ import { logger } from './logger.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+// Global verbose flag
+const VERBOSE = process.env.AI_VERBOSE === '1' || process.env.VERBOSE === '1';
+
 const AI_SCHEMA = z.object({
   parsed: z.boolean(),
   reply: z.string().optional(),
-  entry: z.object({
-    type: z.enum(['vital', 'medication', 'labResult', 'note', 'param', 'activity']).optional(),
-    category: z.enum(['HEALTH_PARAMS', 'ACTIVITY', 'FOOD', 'MEDICATION', 'SYMPTOMS', 'OTHER']).optional(),
-    timestamp: z.number().optional(),
-    activity: z.object({
-      name: z.string(),
-      duration_minutes: z.number().optional(),
-      distance_km: z.number().optional(),
-      intensity: z.enum(['Low', 'Moderate', 'High']).optional(),
-      calories_burned: z.number().optional(),
-      notes: z.string().optional(),
-    }).optional(),
-    vital: z.object({
-      vitalType: z.enum(['glucose', 'weight', 'bloodPressure', 'temperature', 'heartRate', 'steps', 'hba1c']).optional(),
-      value: z.number().optional(),
-      systolic: z.number().optional(),
-      diastolic: z.number().optional(),
-      unit: z.string().optional(),
-    }).optional(),
-    param: z.object({
-      param_code: z.string().regex(/^[A-Z0-9_]{2,}$/), // must align to param_targets primary key
-      value: z.number().optional(),
-      unit: z.string().optional(),
-      // Optional free-form clarifications (e.g., diastolic for BP when using BP_SYS)
-      notes: z.string().optional(),
-    }).optional(),
-    medication: z.object({
-      name: z.string(),
-      dose: z.number().optional(),
-      doseUnit: z.string().optional(),
-      frequencyPerDay: z.number().optional(),
-      durationDays: z.number().optional(),
-    }).optional(),
-    note: z.string().optional(),
-  }).optional(),
+  entry: z.union([
+    z.object({
+      type: z.enum(['vital', 'medication', 'labResult', 'note', 'param', 'activity']).optional(),
+      category: z.enum(['HEALTH_PARAMS', 'ACTIVITY', 'FOOD', 'MEDICATION', 'SYMPTOMS', 'OTHER']).optional(),
+      timestamp: z.number().optional(),
+      activity: z.object({
+        name: z.string(),
+        duration_minutes: z.number().optional(),
+        distance_km: z.number().optional(),
+        intensity: z.enum(['Low', 'Moderate', 'High']).optional(),
+        calories_burned: z.number().optional(),
+        notes: z.string().optional(),
+      }).optional(),
+      vital: z.object({
+        vitalType: z.enum(['glucose', 'weight', 'bloodPressure', 'temperature', 'heartRate', 'steps', 'hba1c']).optional(),
+        value: z.number().optional(),
+        systolic: z.number().optional(),
+        diastolic: z.number().optional(),
+        unit: z.string().optional(),
+      }).optional(),
+      param: z.object({
+        param_code: z.string().regex(/^[A-Z0-9_]{2,}$/), // must align to param_targets primary key
+        value: z.number().optional(),
+        unit: z.string().optional(),
+        // Optional free-form clarifications (e.g., diastolic for BP when using BP_SYS)
+        notes: z.string().optional(),
+      }).optional(),
+      medication: z.object({
+        name: z.string(),
+        dose: z.number().optional(),
+        doseUnit: z.string().optional(),
+        frequencyPerDay: z.number().optional(),
+        durationDays: z.number().optional(),
+      }).optional(),
+      note: z.string().optional(),
+    }),
+    z.null()
+  ]).optional(),
   reasoning: z.string().optional(),
 });
 
 export type AiInterpretation = z.infer<typeof AI_SCHEMA>;
 
 // Cached prompts
+let _messageClassifierPrompt: string | null = null;
 let _healthDataEntryPrompt: string | null = null;
 let _healthDataTrendPrompt: string | null = null;
 let _activityDataEntryPrompt: string | null = null;
 let _medicationDataEntryPrompt: string | null = null;
+
+// Load message classifier prompt from file
+function getMessageClassifierPrompt(): string {
+  if (!_messageClassifierPrompt) {
+    try {
+      const promptPath = join(process.cwd(), 'assets', 'prompts', 'message_classifier_prompt.txt');
+      _messageClassifierPrompt = readFileSync(promptPath, 'utf-8');
+      logger.debug('Loaded message classifier prompt from file', { path: promptPath });
+    } catch (error) {
+      logger.warn('Failed to load message classifier prompt from file', { error });
+      throw new Error('Message classifier prompt not found');
+    }
+  }
+  return _messageClassifierPrompt;
+}
 
 // Helper to get path to prompt file in assets/prompts
 function getPromptPath(promptName: string): string {
@@ -293,10 +315,45 @@ export async function interpretMessage(message: string): Promise<AiInterpretatio
     logger.warn('interpretMessage skipped: OPENAI_API_KEY missing', { message });
     return { parsed: false, reply: 'AI not configured (set OPENAI_API_KEY)', reasoning: 'Missing OPENAI_API_KEY' };
   }
+  
   const model = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
+  
+  // First, use the classifier prompt
+  try {
+    if (VERBOSE) logger.debug('Using classifier prompt', { message });
+    const classifierResponse = await chatGptService.chat([
+      { role: 'system', content: getMessageClassifierPrompt() },
+      { role: 'user', content: message }
+    ], model);
+    
+    const classification = JSON.parse(classifierResponse);
+    
+    // If it's a query, return the response directly
+    if (classification.parsed === false) {
+      if (VERBOSE) logger.debug('Classifier identified query', { classification });
+      return classification;
+    }
+    
+    // If it's data entry, route to appropriate prompt
+    if (classification.route_to) {
+      if (VERBOSE) logger.debug('Classifier routing to specialized prompt', { route: classification.route_to });
+      const promptContent = readFileSync(join(process.cwd(), 'assets', 'prompts', classification.route_to), 'utf-8');
+      const dataEntryResponse = await chatGptService.chat([
+        { role: 'system', content: promptContent },
+        { role: 'user', content: classification.original_message }
+      ], model);
+      
+      return JSON.parse(dataEntryResponse);
+    }
+  } catch (e: any) {
+    if (VERBOSE) logger.error('Classifier error, falling back to legacy logic', { error: String(e) });
+  }
+  
+  // Fallback to original interpretation logic if classifier fails
   const attempts: { raw?: string; error?: string }[] = [];
   const MAX_TRIES = 2;
-  // Determine message type by keywords
+  
+  // Legacy keyword detection as fallback
   const activityKeywords = ['walk', 'run', 'swim', 'gym', 'workout', 'exercise', 'yoga', 'cycling', 'jogging', 'km', 'miles', 'steps'];
   const medicationKeywords = ['took', 'take', 'taken', 'dose', 'tablet', 'pill', 'medicine', 'medication', 'insulin', 'injection', 'prescribed', 'mg', 'units'];
   
@@ -313,8 +370,7 @@ export async function interpretMessage(message: string): Promise<AiInterpretatio
     { role: 'user', content: message }
   ];
 
-  const verbose = process.env.AI_VERBOSE === '1' || process.env.VERBOSE === '1';
-  if (verbose) logger.debug('AI interpret start', { message });
+  if (VERBOSE) logger.debug('AI interpret start', { message });
   for (let i = 0; i < MAX_TRIES; i++) {
     let raw: string;
     try {
@@ -335,25 +391,25 @@ export async function interpretMessage(message: string): Promise<AiInterpretatio
       
       raw = JSON.stringify(parsed);
     } catch (e: any) {
-      if (verbose) logger.error('AI request failure', { error: String(e) });
+      if (VERBOSE) logger.error('AI request failure', { error: String(e) });
       return { parsed: false, reply: 'ChatGPT API error', reasoning: String(e.message || e) };
     }
     try {
       const json = extractFirstJsonBlock(raw);
       const parsed = AI_SCHEMA.safeParse(json);
       if (parsed.success) {
-        if (verbose) logger.debug('AI success', { attempt: i + 1, result: parsed.data });
+        if (VERBOSE) logger.debug('AI success', { attempt: i + 1, result: parsed.data });
         if (parsed.data.entry && !parsed.data.entry.timestamp) {
           parsed.data.entry.timestamp = Date.now();
         }
-        return normalizeInterpretation(message, parsed.data, verbose);
+        return normalizeInterpretation(message, parsed.data, VERBOSE);
       } else {
         attempts.push({ raw, error: parsed.error.message });
-        if (verbose) logger.warn('AI schema validation failed', { attempt: i + 1, error: parsed.error.message, sample: raw.slice(0, 300) });
+        if (VERBOSE) logger.warn('AI schema validation failed', { attempt: i + 1, error: parsed.error.message, sample: raw.slice(0, 300) });
       }
     } catch (e: any) {
       attempts.push({ raw, error: e.message });
-      if (verbose) logger.warn('AI JSON parse failed', { attempt: i + 1, error: e.message, sample: raw.slice(0, 300) });
+      if (VERBOSE) logger.warn('AI JSON parse failed', { attempt: i + 1, error: e.message, sample: raw.slice(0, 300) });
     }
     // Prepare repair prompt for next iteration
     if (i === 0) {
@@ -367,7 +423,7 @@ export async function interpretMessage(message: string): Promise<AiInterpretatio
     }
   }
   const lastErr = attempts[attempts.length - 1];
-  if (verbose) logger.error('AI final failure', { lastErr });
+  if (VERBOSE) logger.error('AI final failure', { lastErr });
   // Second-pass targeted repair attempt (only if enabled and first pass invalid)
   if (SECOND_PASS_ENABLED) {
     try {
@@ -382,19 +438,19 @@ export async function interpretMessage(message: string): Promise<AiInterpretatio
         const parsed = AI_SCHEMA.safeParse(json);
         if (parsed.success) {
           if (parsed.data.entry && !parsed.data.entry.timestamp) parsed.data.entry.timestamp = Date.now();
-          return normalizeInterpretation(message, parsed.data, verbose);
+          return normalizeInterpretation(message, parsed.data, VERBOSE);
         }
       } catch (e2: any) {
-        if (verbose) logger.warn('Repair parse failed', { error: e2.message });
+        if (VERBOSE) logger.warn('Repair parse failed', { error: e2.message });
       }
     } catch (e: any) {
-      if (verbose) logger.warn('Second pass failed', { error: e.message });
+      if (VERBOSE) logger.warn('Second pass failed', { error: e.message });
     }
   }
   // Salvage heuristics before downgrading to note
   const salvaged = salvageHeuristic(message);
   if (salvaged) {
-    if (verbose) logger.warn('Heuristic salvage succeeded');
+    if (VERBOSE) logger.warn('Heuristic salvage succeeded');
     return salvaged;
   }
   // As last resort, store as note (never refuse)

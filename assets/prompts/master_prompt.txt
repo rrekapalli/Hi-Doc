@@ -1,35 +1,83 @@
-# Master Prompt for Health Tracking AI System Chat process flow
+# Master Prompt for Health Tracking AI System
 
-## Overview
-This AI system integrates multiple health-related prompt flows into a single master prompt.
-It will dynamically route user input to the correct category-specific parsing logic and save
-data into the correct database table.
+## System Architecture
+This is a multi-stage AI system for health data processing:
 
-## Supported Categories & Linked Prompts (stored in /assets/prompts/):
-- health_data_entry_prompt.txt → For daily health parameters like blood pressure, sugar, osmolity, lymphocytes, etc.
-- activity_data_entry_prompt.txt → For activities like running, swimming, yoga, gym workouts, etc.
-- medications_data_entry_prompt.txt → For medications with optional alarm scheduling.
-- reports_processing_prompt.txt → For report upload (PDF/scan), OCR extraction, and parsing.
+1. CLASSIFIER (message_classifier_prompt.txt)
+   - First point of contact for all user messages
+   - Determines if message is a QUERY or DATA ENTRY
+   - Routes to appropriate specialized prompt or handles query directly
 
-## Master Flow
-1. **Always save the incoming raw user message** into the `messages` table first with:
-   - `user_id`
-   - `role = 'user'`
-   - `content` = the exact message text
-   - `created_at` = current timestamp
-   - `processed = 0` initially
-   - `interpretation_json` = JSON you produce (described below)
-   - `stored_record_id` = NULL initially
+2. SPECIALIZED PROMPTS
+   - health_data_entry_prompt.txt: For health parameters (BP, sugar, etc.)
+   - activity_data_entry_prompt.txt: For physical activities
+   - medication_data_entry_prompt.txt: For medication intake records
+   - reports_processing_prompt.txt: For medical report processing
 
-2. Detect the category of the user's input or action:
-   - If it's a health parameter message → Use `health_data_entry_prompt` logic.
-   - If it's a activity related message → Use `activity_data_entry_prompt` logic.
-   - If it's a medication-related message → Use `medications_data_entry_prompt` logic.
-   - If it's a file upload or scan action → Use `reports_processing_prompt` logic.
+## Process Flow
 
-3. Execute the relevant parsing logic:
-   - Map user input directly to database table fields.
-   - Save data in the correct table.
-   - Trigger follow-up actions (e.g., setting alarms, asking for confirmation).
+1. All messages go through classifier first:
+   ```json
+   {
+     "parsed": false,
+     "entry": null,
+     "reply": "...",
+     "reasoning": "..."
+   }
+   ```
+   OR
+   ```json
+   {
+     "parsed": true,
+     "route_to": "<prompt_name>",
+     "message_type": "<type>",
+     "original_message": "<user message>"
+   }
+   ```
 
-4. If a category-specific prompt is used, return control to the master prompt for the next action.
+2. If classifier identifies DATA ENTRY:
+   - Routes to appropriate specialized prompt
+   - Specialized prompt processes and stores data
+   - Returns confirmation to user
+
+3. If classifier identifies QUERY:
+   - Provides direct response with medical disclaimer
+   - No data storage needed
+   - Response stored in messages table only
+
+## Database Storage
+
+1. Messages Table (all interactions):
+   - user_id
+   - role (user/assistant)
+   - content (original message/response)
+   - created_at
+   - processed
+   - interpretation_json
+   - stored_record_id (if data was stored)
+
+2. Data Tables (only for data entry):
+   - health_data
+   - medications
+   - activities
+   - reports
+
+## Response Guidelines
+
+1. All responses must be valid JSON
+2. Queries must include medical disclaimer
+3. Keep responses under 200 characters
+4. Never store questions as data entries
+5. Always route to correct specialized prompt for data entry
+
+## Error Handling
+
+1. If classification fails:
+   - Log error
+   - Return error message to user
+   - Mark message as processed but not parsed
+
+2. If specialized prompt fails:
+   - Log error
+   - Return to user for clarification
+   - Never save invalid data
