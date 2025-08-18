@@ -63,7 +63,7 @@ let _medicationDataEntryPrompt: string | null = null;
 function getMessageClassifierPrompt(): string {
   if (!_messageClassifierPrompt) {
     try {
-      const promptPath = join(process.cwd(), 'assets', 'prompts', 'message_classifier_prompt.txt');
+      const promptPath = getPromptPath('message_classifier_prompt.txt');
       _messageClassifierPrompt = readFileSync(promptPath, 'utf-8');
       logger.debug('Loaded message classifier prompt from file', { path: promptPath });
     } catch (error) {
@@ -76,7 +76,7 @@ function getMessageClassifierPrompt(): string {
 
 // Helper to get path to prompt file in assets/prompts
 function getPromptPath(promptName: string): string {
-  return join(process.cwd(), 'assets', 'prompts', promptName);
+  return join(process.cwd(), '..', 'assets', 'prompts', promptName);
 }
 
 // Load activity data entry prompt from file
