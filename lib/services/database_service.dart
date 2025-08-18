@@ -141,13 +141,19 @@ class DatabaseService {
 
     await db.execute('''CREATE TABLE medications (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
       name TEXT NOT NULL,
       dosage TEXT,
       schedule_type TEXT NOT NULL DEFAULT 'fixed',
       from_date INTEGER,
       to_date INTEGER,
-      is_deleted INTEGER NOT NULL DEFAULT 0
+      frequency_per_day INTEGER,
+      is_deleted INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )''');
+    
+    // Add indexes for better performance
+    await db.execute('CREATE INDEX idx_medications_is_deleted ON medications(is_deleted);');
 
     await db.execute('''CREATE TABLE reports (
       id TEXT PRIMARY KEY,
@@ -348,30 +354,61 @@ class DatabaseService {
   }
 
   Future<void> updateMedication(Map<String, dynamic> medication) async {
-    debugPrint('Updating medication with ID: ${medication['id']}');
+    debugPrint('Updating/Creating medication with ID: ${medication['id']}');
     try {
       if (_inMemory) {
+        final headers = {
+          ...await _getAuthHeaders(),
+          'Content-Type': 'application/json',
+        };
+
+        // First try to create the medication
+        final createResponse = await http.post(
+          Uri.parse('${AppConfig.backendBaseUrl}/api/medications'),
+          headers: headers,
+          body: json.encode(medication),
+        );
+
+        if (createResponse.statusCode != 201) {
+          // If creation fails, try updating
+          final updateResponse = await http.put(
+            Uri.parse('${AppConfig.backendBaseUrl}/api/medications/${medication['id']}'),
+            headers: headers,
+            body: json.encode(medication),
+          );
+
+          if (updateResponse.statusCode != 200) {
+            throw Exception('Failed to save medication: ${updateResponse.body}');
+          }
+        }
+
         final index = _medications.indexWhere((med) => med['id'] == medication['id']);
         if (index != -1) {
           _medications[index] = Map<String, dynamic>.from(medication);
+        } else {
+          _medications.add(Map<String, dynamic>.from(medication));
         }
         return;
       }
+
+      // Fallback to direct database update if not in memory mode
       final db = _ensure();
+      final updateData = {
+        'name': medication['name'],
+        'dosage': medication['dosage'],
+        'frequency_per_day': medication['frequency_per_day'],
+        'schedule_type': medication['schedule_type'],
+        'from_date': medication['from_date'],
+        'to_date': medication['to_date'],
+        'is_deleted': medication['is_deleted'] ?? 0,
+        'user_id': medication['user_id'] ?? 'prototype-user-12345',
+      };
       
       await db.update(
         'medications',
-        {
-          'name': medication['name'],
-          'dose': medication['dose'],
-          'dose_unit': medication['doseUnit'],
-          'frequency_per_day': medication['frequencyPerDay'],
-          'schedule_type': medication['scheduleType'],
-          'from_date': (medication['fromDate'] as DateTime?)?.millisecondsSinceEpoch,
-          'to_date': (medication['toDate'] as DateTime?)?.millisecondsSinceEpoch,
-        },
-        where: 'id = ?',
-        whereArgs: [medication['id']],
+        updateData,
+        where: 'id = ? AND user_id = ?',
+        whereArgs: [medication['id'], medication['user_id'] ?? 'prototype-user-12345'],
       );
       
       debugPrint('Successfully updated medication');

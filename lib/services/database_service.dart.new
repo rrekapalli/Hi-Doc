@@ -1,0 +1,60 @@
+  Future<void> insertMedication(Map<String, dynamic> med) async {
+    debugPrint('Inserting medication: $med');
+    try {
+      if (_inMemory) {
+        _medications.add(Map<String, dynamic>.from(med));
+        return;
+      }
+      final db = _ensure();
+      
+      await db.insert('medications', {
+        'id': med['id'],
+        'name': med['name'],
+        'dosage': med['dosage'],
+        'frequency_per_day': med['frequency_per_day'],
+        'schedule_type': med['schedule_type'] ?? 'fixed',
+        'from_date': med['from_date'],
+        'to_date': med['to_date'],
+        'is_deleted': med['is_deleted'] ?? 0,
+      });
+      
+      debugPrint('Successfully inserted medication');
+    } catch (e) {
+      debugPrint('Failed to insert medication: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> updateMedication(Map<String, dynamic> medication) async {
+    debugPrint('Updating medication with ID: ${medication['id']}');
+    try {
+      if (_inMemory) {
+        final index = _medications.indexWhere((med) => med['id'] == medication['id']);
+        if (index != -1) {
+          _medications[index] = Map<String, dynamic>.from(medication);
+        }
+        return;
+      }
+      final db = _ensure();
+      
+      await db.update(
+        'medications',
+        {
+          'name': medication['name'],
+          'dosage': medication['dosage'],
+          'frequency_per_day': medication['frequency_per_day'],
+          'schedule_type': medication['schedule_type'],
+          'from_date': medication['from_date'],
+          'to_date': medication['to_date'],
+          'is_deleted': medication['is_deleted'] ?? 0,
+        },
+        where: 'id = ?',
+        whereArgs: [medication['id']],
+      );
+      
+      debugPrint('Successfully updated medication');
+    } catch (e) {
+      debugPrint('Failed to update medication: $e');
+      rethrow;
+    }
+  }
