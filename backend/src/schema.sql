@@ -163,7 +163,7 @@ INSERT OR IGNORE INTO conversations (
   updated_at
 ) VALUES (
   'default-conversation',
-  'Default',
+  'Me',
   'direct',
   1,
   strftime('%s', 'now') * 1000,
