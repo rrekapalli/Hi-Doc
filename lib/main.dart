@@ -56,7 +56,7 @@ class HiDocApp extends StatelessWidget {
         Provider<AuthService>.value(value: authService),
         ChangeNotifierProvider(create: (_) => AuthProvider(authService)),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
-        ChangeNotifierProvider(create: (_) => ChatProvider(db: db)),
+        ChangeNotifierProvider(create: (context) => ChatProvider(db: db, authService: context.read<AuthService>())),
       ],
       child: Builder(builder: (context) {
         // Attach settings to chat provider (once)

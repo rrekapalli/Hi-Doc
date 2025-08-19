@@ -103,9 +103,10 @@ class AiService {
       return null;
     }
 
-    // Prototype mode: no authentication needed
+    // Include authorization header for authentication
     final headers = {
       'Content-Type': 'application/json',
+      if (bearerToken != null) 'Authorization': 'Bearer $bearerToken',
     };
     
     http.Response resp;

@@ -381,12 +381,14 @@ export async function interpretMessage(message: string): Promise<AiInterpretatio
       // Parse the JSON
       const parsed = JSON.parse(raw);
       
-      // Ensure timestamp is set for activities and health data
-      if (parsed.entry?.activity && !parsed.entry.timestamp) {
-        parsed.entry.timestamp = Date.now();
-      }
-      if (parsed.entry?.param && !parsed.entry.timestamp) {
-        parsed.entry.timestamp = Date.now();
+      // Ensure timestamp is set for all entry types and fix string timestamps
+      if (parsed.entry) {
+        if (parsed.entry.timestamp === '<current_timestamp>' || typeof parsed.entry.timestamp === 'string') {
+          parsed.entry.timestamp = Date.now();
+        }
+        if (!parsed.entry.timestamp) {
+          parsed.entry.timestamp = Date.now();
+        }
       }
       
       raw = JSON.stringify(parsed);

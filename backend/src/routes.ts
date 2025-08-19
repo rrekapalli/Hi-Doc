@@ -1,13 +1,24 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request as ExpressRequest, Response, NextFunction } from 'express';
 import { db } from './db.js';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { signToken, verifyToken } from './jwtUtil.js';
 import { interpretMessage, aiProviderStatus, AiInterpretation, getHealthDataEntryPrompt, getHealthDataTrendPrompt, clearPromptCache } from './ai.js';
+
+// Extend Express Request to include user
+interface Request extends ExpressRequest {
+  user?: {
+    id: string;
+    name?: string;
+    email?: string;
+  };
+}
 import { logger } from './logger.js';
 import { verifyMicrosoftIdToken } from './msAuth.js';
 interface DbMessage {
   id: string;
+  conversation_id: string;
+  sender_id: string;
   user_id: string;
   role: 'user' | 'system' | 'assistant';
   content: string;
@@ -17,6 +28,185 @@ interface DbMessage {
 }
 
 const router = Router();
+
+// Import conversation-related functions
+import {
+  getConversations,
+  getMessages,
+  sendMessage,
+  createConversation,
+  markConversationAsRead,
+  updateConversationTitle,
+  addConversationMembers,
+  removeConversationMember,
+  getConversationMembers,
+} from './conversations.js';
+
+// Conversation routes
+router.get('/api/conversations', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const conversations = await getConversations(userId);
+    res.json(conversations);
+  } catch (error) {
+    logger.error('Error getting conversations:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/api/conversations/:id/messages', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { before, limit } = req.query;
+    const messages = await getMessages(
+      id,
+      userId,
+      limit ? parseInt(limit as string) : undefined,
+      before ? parseInt(before as string) : undefined
+    );
+    res.json(messages);
+  } catch (error) {
+    logger.error('Error getting messages:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/api/conversations/:id/messages', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { content, contentType = 'text' } = req.body;
+    if (!content) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+
+    const messageId = await sendMessage({
+      conversation_id: id,
+      sender_id: userId,
+      role: 'user',
+      content,
+      content_type: contentType,
+      processed: 0,
+    });
+
+    res.json({ id: messageId });
+  } catch (error) {
+    logger.error('Error sending message:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/api/conversations', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { title, type, memberIds } = req.body;
+    if (!type || !memberIds || !Array.isArray(memberIds)) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    // Always include the creator in the members list
+    const uniqueMemberIds = Array.from(new Set([...memberIds, userId]));
+
+    const conversationId = await createConversation(
+      title,
+      type,
+      uniqueMemberIds,
+      userId
+    );
+
+    res.json({ id: conversationId });
+  } catch (error) {
+    logger.error('Error creating conversation:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/api/conversations/:id/read', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    await markConversationAsRead(id, userId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error marking conversation as read:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/api/conversations/:id/title', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { title } = req.body;
+    if (!title) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+
+    await updateConversationTitle(id, title);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error updating conversation title:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/api/conversations/:id/members', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { userIds } = req.body;
+    if (!userIds || !Array.isArray(userIds)) {
+      return res.status(400).json({ error: 'User IDs array is required' });
+    }
+
+    await addConversationMembers(id, userIds);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error adding conversation members:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/api/conversations/:id/members/:userId', async (req: Request, res: Response) => {
+  try {
+    const { id, userId } = req.params;
+    await removeConversationMember(id, userId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error removing conversation member:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/api/conversations/:id/members', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const members = await getConversationMembers(id);
+    res.json(members);
+  } catch (error) {
+    logger.error('Error getting conversation members:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Runtime debug flags (can be toggled without restart)
 const runtimeDebug: { db:boolean; ai:boolean } = {
@@ -312,8 +502,8 @@ router.post('/api/ai/process-with-prompt', async (req: Request, res: Response) =
     const userMessageId = randomUUID();
     const createdAt = Date.now();
     
-    db.prepare('INSERT INTO messages (id, user_id, role, content, created_at, processed) VALUES (?,?,?,?,?,0)')
-      .run(userMessageId, userId, 'user', String(message), createdAt);
+    db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,0)')
+      .run(userMessageId, 'me-conversation', userId, 'user', String(message), createdAt);
     
     logger.debug('Saved user message to messages table', { messageId: userMessageId });
     
@@ -459,8 +649,8 @@ router.post('/api/ai/process-with-prompt', async (req: Request, res: Response) =
       const aiMessageId = randomUUID();
       const aiResponse = reply || 'Health data processed';
       
-      db.prepare('INSERT INTO messages (id, user_id, role, content, created_at, processed) VALUES (?,?,?,?,?,1)')
-        .run(aiMessageId, userId, 'assistant', aiResponse, Date.now());
+      db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,1)')
+        .run(aiMessageId, 'me-conversation', userId, 'assistant', aiResponse, Date.now());
       
       // Step 3: Update user message as processed and link to health data if extracted
       const interpretation = {
@@ -583,7 +773,7 @@ router.post('/api/ai/process-with-prompt', async (req: Request, res: Response) =
       };
       
       // Find the most recent unprocessed message for this user
-      const recentMessage = db.prepare('SELECT id FROM messages WHERE user_id = ? AND processed = 0 ORDER BY created_at DESC LIMIT 1').get(userId);
+      const recentMessage = db.prepare('SELECT id FROM messages WHERE sender_id = ? AND processed = 0 ORDER BY created_at DESC LIMIT 1').get(userId) as { id: string } | undefined;
       if (recentMessage) {
         db.prepare('UPDATE messages SET interpretation_json = ?, processed = 1 WHERE id = ?')
           .run(JSON.stringify(interpretation), recentMessage.id);
@@ -598,10 +788,10 @@ router.post('/api/ai/process-with-prompt', async (req: Request, res: Response) =
 
 // New endpoint: Save health data entry
 router.post('/api/health-data', (req: Request, res: Response) => {
-  const { id, user_id, type, category, value, quantity, unit, timestamp, notes } = req.body || {};
+  const { id, user_id, conversation_id, type, category, value, quantity, unit, timestamp, notes } = req.body || {};
   
-  if (!id || !user_id || !type || !timestamp) {
-    return res.status(400).json({ error: 'id, user_id, type, and timestamp are required' });
+  if (!id || !user_id || !conversation_id || !type || !timestamp) {
+    return res.status(400).json({ error: 'id, user_id, conversation_id, type, and timestamp are required' });
   }
   
   try {
@@ -611,11 +801,12 @@ router.post('/api/health-data', (req: Request, res: Response) => {
     
     if (hasQuantity) {
       db.prepare(`
-        INSERT INTO health_data (id, user_id, type, category, value, quantity, unit, timestamp, notes) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO health_data (id, user_id, conversation_id, type, category, value, quantity, unit, timestamp, notes) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         user_id,
+        conversation_id,
         type,
         category || 'HEALTH_PARAMS',
         value || null,
@@ -627,11 +818,12 @@ router.post('/api/health-data', (req: Request, res: Response) => {
     } else {
       // Fallback for tables without quantity column
       db.prepare(`
-        INSERT INTO health_data (id, user_id, type, category, value, unit, timestamp, notes) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         user_id,
+        conversation_id,
         type,
         category || 'HEALTH_PARAMS',
         value || null,
@@ -722,15 +914,15 @@ router.post('/api/health-data/trend', (req: Request, res: Response) => {
 router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
   const { message } = req.body || {};
   if (!message) { logger.warn('Interpret-store missing message'); return res.status(400).json({ error: 'message required' }); }
-  const userId = (req as any).userId;
+  const userId = (req as any).user?.id || (req as any).userId;
   logger.debug('Interpret-store userId check', { userId, hasUserId: !!userId, type: typeof userId });
 
   
   // Store raw message first
   const msgId = randomUUID();
   const createdAt = Date.now();
-  db.prepare('INSERT INTO messages (id, user_id, role, content, created_at, processed) VALUES (?,?,?,?,?,0)')
-    .run(msgId, userId, 'user', String(message), createdAt);
+  db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,0)')
+    .run(msgId, 'default-conversation', userId, 'user', String(message), createdAt);
   const interpretation = await interpretMessage(String(message));
   const matches = matchParamTargets(String(message), 5);
   if (runtimeDebug.ai) logger.debug('ai.interpretStore.res', { parsed: interpretation.parsed, entry: interpretation.entry, matches });
@@ -741,7 +933,7 @@ router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
     return res.status(200).json({ interpretation, stored: null, messageId: msgId, matches });
   }
   try {
-    const stored = persistAiEntry(interpretation.entry, userId);
+    const stored = persistAiEntry(interpretation.entry, userId, 'default-conversation');
     db.prepare('UPDATE messages SET interpretation_json = ?, processed = 1, stored_record_id = ? WHERE id = ?')
       .run(JSON.stringify(interpretation), stored.id, msgId);
     logger.info('Persisted AI entry', { reqId: (req as any).reqId, storedType: stored.type || stored.name, id: stored.id });
@@ -755,7 +947,7 @@ router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
 });
 
 // Helper to map AI entry -> DB rows.
-function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: string) {
+function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: string, conversationId: string) {
   const id = randomUUID();
   const ts = entry.timestamp ?? Date.now();
   const category = entry.category || 'HEALTH_PARAMS';
@@ -789,8 +981,8 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
       }
       
       logger.debug('DB insert health_data vital', { vt, value, unit, category, ts });
-      db.prepare('INSERT INTO health_data (id, user_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?)')
-        .run(id, userId, vt, category, value, unit, ts, null);
+      db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, conversationId, vt, category, value, unit, ts, null);
       return { table: 'health_data', id, type: vt, category, value, unit, timestamp: ts };
     }
     case 'param': {
@@ -800,16 +992,16 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
       const unit = p.unit || null;
       const notes = p.notes || null;
       logger.debug('DB insert param as health_data', { code: p.param_code, value, unit, category, ts });
-      db.prepare('INSERT INTO health_data (id, user_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?)')
-        .run(id, userId, p.param_code, category, value, unit, ts, notes);
+      db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, conversationId, p.param_code, category, value, unit, ts, notes);
       return { table: 'health_data', id, type: p.param_code, category, value, unit, notes, timestamp: ts };
     }
     case 'note': {
       const noteId = id;
       const noteText = entry.note || '';
       logger.debug('DB insert note', { category, ts });
-      db.prepare('INSERT INTO health_data (id, user_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?)')
-        .run(noteId, userId, 'note', category, null, null, ts, noteText);
+      db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(noteId, userId, conversationId, 'note', category, null, null, ts, noteText);
       return { table: 'health_data', id: noteId, type: 'note', category, notes: noteText, timestamp: ts };
     }
     case 'medication': {
@@ -821,9 +1013,9 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
       const dosage = dosageParts.join(' '); // e.g., "500 mg"
       let schedule: string | null = null;
       if (m.frequencyPerDay) schedule = `${m.frequencyPerDay}x/day`;
-      logger.debug('DB insert medication', { name: m.name, dosage, schedule, duration: m.durationDays });
-      db.prepare('INSERT INTO medications (id, user_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?)')
-        .run(id, userId, m.name, dosage || null, schedule, m.durationDays ?? null, 0, ts);
+      logger.debug('DB insert medication', { name: m.name, dosage, schedule, duration: m.durationDays, conversationId });
+      db.prepare('INSERT INTO medications (id, user_id, conversation_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, conversationId, m.name, dosage || null, schedule, m.durationDays ?? null, 0, ts);
       return { table: 'medications', id, name: m.name, dosage: dosage || null, schedule, durationDays: m.durationDays ?? null, startDate: ts };
     }
     case 'labResult': {
@@ -838,9 +1030,9 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
     case 'activity': {
       if (!entry.activity || !entry.activity.name) throw new Error('activity.name missing');
       const a = entry.activity;
-      logger.debug('DB insert activity', { name: a.name, distance: a.distance_km, duration: a.duration_minutes, intensity: a.intensity });
-      db.prepare('INSERT INTO activities (id, user_id, name, duration_minutes, distance_km, intensity, calories_burned, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(id, userId, a.name, a.duration_minutes ?? null, a.distance_km ?? null, a.intensity ?? null, a.calories_burned ?? null, ts, a.notes ?? null);
+      logger.debug('DB insert activity', { name: a.name, distance: a.distance_km, duration: a.duration_minutes, intensity: a.intensity, conversationId });
+      db.prepare('INSERT INTO activities (id, user_id, conversation_id, name, duration_minutes, distance_km, intensity, calories_burned, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, conversationId, a.name, a.duration_minutes ?? null, a.distance_km ?? null, a.intensity ?? null, a.calories_burned ?? null, ts, a.notes ?? null);
       return { table: 'activities', id, name: a.name, duration_minutes: a.duration_minutes ?? null, distance_km: a.distance_km ?? null, intensity: a.intensity ?? null, calories_burned: a.calories_burned ?? null, timestamp: ts, notes: a.notes ?? null };
     }
     default:
@@ -1108,9 +1300,22 @@ router.post('/api/param-targets/match', (req: Request, res: Response) => {
 
 router.get('/api/messages', (req: Request, res: Response) => {
   const userId = (req as any).userId;
+  const conversationId = req.query.conversation_id;
   const limit = Math.min(Number(req.query.limit || 50), 500);
-  const rows = db.prepare('SELECT * FROM messages WHERE user_id = ? ORDER BY created_at DESC LIMIT ?').all(userId, limit);
-  res.json(rows);
+  
+  let query = 'SELECT * FROM messages WHERE sender_id = ?';
+  const params: any[] = [userId];
+  
+  if (conversationId) {
+    query += ' AND conversation_id = ?';
+    params.push(conversationId);
+  }
+  
+  query += ' ORDER BY created_at DESC LIMIT ?';
+  params.push(limit);
+  
+  const rows = db.prepare(query).all(...params);
+  res.json({ items: rows });
 });
 
 // Reprocess failed messages
@@ -1134,7 +1339,7 @@ router.post('/api/messages/reprocess-failed', async (req: Request, res: Response
       
       if (interpretation.parsed && interpretation.entry) {
         try {
-          const stored = persistAiEntry(interpretation.entry, userId);
+          const stored = persistAiEntry(interpretation.entry, userId, msg.conversation_id);
           db.prepare('UPDATE messages SET interpretation_json = ?, stored_record_id = ? WHERE id = ?')
             .run(JSON.stringify(interpretation), stored.id, msg.id);
           

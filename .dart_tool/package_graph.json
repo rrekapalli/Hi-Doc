@@ -27,6 +27,7 @@
         "provider",
         "shared_preferences",
         "sqflite",
+        "timeago",
         "timezone",
         "uuid"
       ],
@@ -176,6 +177,13 @@
         "flutter_secure_storage_web",
         "flutter_secure_storage_windows",
         "meta"
+      ]
+    },
+    {
+      "name": "timeago",
+      "version": "3.7.1",
+      "dependencies": [
+        "intl"
       ]
     },
     {

@@ -28,6 +28,7 @@ dependencies:
   shared_preferences: ^2.2.3
   json_annotation: ^4.9.0
   uuid: ^4.4.0
+  timeago: ^3.6.1
   flutter_secure_storage: ^9.2.4
   llama_cpp_dart: ^0.1.0 # earliest available version for local tiny LLaMA inference support
 

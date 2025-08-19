@@ -806,6 +806,12 @@
       "languageVersion": "3.5"
     },
     {
+      "name": "timeago",
+      "rootUri": "file:///home/raja/.pub-cache/hosted/pub.dev/timeago-3.7.1",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
       "name": "timezone",
       "rootUri": "file:///home/raja/.pub-cache/hosted/pub.dev/timezone-0.10.1",
       "packageUri": "lib/",

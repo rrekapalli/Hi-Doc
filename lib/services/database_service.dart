@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../config/app_config.dart';
 import '../models/health_entry.dart';
 import '../models/message.dart';
+import '../models/conversation.dart';
 import 'notification_service.dart';
 import '../services/auth_service.dart';
 
@@ -19,9 +20,103 @@ class DatabaseService {
   bool _inMemory = false; // Web fallback
   bool _initialized = false;
   final NotificationService _notificationService;
+  final _backendBaseUrl = AppConfig.backendBaseUrl;
 
-  DatabaseService({required NotificationService notificationService})
-      : _notificationService = notificationService;
+  DatabaseService({required NotificationService notificationService}) : _notificationService = notificationService;
+
+  // Fetch all conversations for the current user
+  Future<List<Map<String, dynamic>>> getConversations() async {
+    final headers = await _getAuthHeaders();
+    final response = await http.get(
+      Uri.parse('$_backendBaseUrl/api/conversations'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      return List<Map<String, dynamic>>.from(json.decode(response.body));
+    } else {
+      throw Exception('Failed to load conversations');
+    }
+  }
+
+  // Fetch messages for a specific conversation
+  Future<List<Map<String, dynamic>>> getConversationMessages(String conversationId) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.get(
+      Uri.parse('$_backendBaseUrl/api/conversations/$conversationId/messages'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      return List<Map<String, dynamic>>.from(json.decode(response.body));
+    } else {
+      throw Exception('Failed to load messages');
+    }
+  }
+
+  // Send a new message
+  Future<String> sendConversationMessage({
+    required String conversationId,
+    required String content,
+    String contentType = 'text',
+  }) async {
+    final headers = await _getAuthHeaders();
+    headers['Content-Type'] = 'application/json';
+    final response = await http.post(
+      Uri.parse('$_backendBaseUrl/api/conversations/$conversationId/messages'),
+      headers: headers,
+      body: json.encode({
+        'content': content,
+        'contentType': contentType,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['id'] as String;
+    } else {
+      throw Exception('Failed to send message');
+    }
+  }
+
+  // Mark conversation as read
+  Future<void> markConversationAsRead(String conversationId) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.post(
+      Uri.parse('$_backendBaseUrl/api/conversations/$conversationId/read'),
+      headers: headers,
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to mark conversation as read');
+    }
+  }
+
+  // Create a new conversation
+  Future<String> createConversation({
+    String? title,
+    required String type,
+    required List<String> memberIds,
+  }) async {
+    final headers = await _getAuthHeaders();
+    headers['Content-Type'] = 'application/json';
+    final response = await http.post(
+      Uri.parse('$_backendBaseUrl/api/conversations'),
+      headers: headers,
+      body: json.encode({
+        'title': title,
+        'type': type,
+        'memberIds': memberIds,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['id'] as String;
+    } else {
+      throw Exception('Failed to create conversation');
+    }
+  }
 
   // In-memory stores for web fallback
   final List<HealthEntry> _entries = [];

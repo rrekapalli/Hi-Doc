@@ -6,6 +6,7 @@ import 'package:flutter_appauth/flutter_appauth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
 
 // NOTE: You must add firebase_options.dart via flutterfire configure.
@@ -24,11 +25,11 @@ class AuthService {
   User? get currentUser => _auth?.currentUser;
 
   Future<String?> getIdToken() async {
-    if (kIsWeb) {
-      // For web, get the token from secure storage
-      return await _secure.read(key: 'auth_token');
+    if (kDebugMode || kIsWeb) {
+      // For dev and web, use a test token
+      return 'dev_test_token_prototype-user-12345';
     } else {
-      // For mobile, get the token from Firebase
+      // For mobile prod, get the token from Firebase
       return await _auth?.currentUser?.getIdToken();
     }
   }

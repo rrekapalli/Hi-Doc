@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../services/database_service.dart';
 import '../services/ai_service.dart';
+import '../services/auth_service.dart';
 import 'settings_provider.dart';
 import '../models/chat_message.dart';
 import '../models/health_entry.dart';
@@ -10,14 +11,20 @@ import '../config/app_config.dart';
 
 class ChatProvider extends ChangeNotifier {
   final DatabaseService db;
+  final AuthService? authService;
   SettingsProvider? settings;
   final AiService _ai = AiService();
   final List<ChatMessage> _messages = [];
   final Set<String> _loading = {};
+  String? _currentConversationId;
 
-  List<ChatMessage> get messages => List.unmodifiable(_messages);
+  List<ChatMessage> get messages => _currentConversationId == null 
+    ? List.unmodifiable(_messages)
+    : List.unmodifiable(_messages.where((m) => m.conversationId == _currentConversationId).toList());
 
-  ChatProvider({required this.db});
+  String? get currentConversationId => _currentConversationId;
+
+  ChatProvider({required this.db, this.authService});
 
   void attachSettings(SettingsProvider s) {
     settings = s;
@@ -25,14 +32,28 @@ class ChatProvider extends ChangeNotifier {
 
   bool isLoading(String id) => _loading.contains(id);
 
+  void setCurrentConversation(String conversationId) {
+    _currentConversationId = conversationId;
+    notifyListeners();
+  }
+
   Future<void> sendMessage(String text) async {
+    if (_currentConversationId == null) {
+      debugPrint('Error: No conversation selected');
+      return;
+    }
+
     final id = DateTime.now().microsecondsSinceEpoch.toString();
 
     debugPrint('Processing user message: $text');
 
     try {
       _messages.add(ChatMessage(
-          id: id, text: text, isUser: true, timestamp: DateTime.now()));
+          id: id, 
+          text: text, 
+          isUser: true, 
+          conversationId: _currentConversationId!,
+          timestamp: DateTime.now()));
       notifyListeners();
     } catch (e) {
       debugPrint('Failed to add message to chat: $e');
@@ -47,7 +68,9 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final aiResult = await _ai.interpretAndStore(text);
+      // Get bearer token for authentication
+      final token = await authService?.getIdToken();
+      final aiResult = await _ai.interpretAndStore(text, bearerToken: token);
 
       if (aiResult != null && aiResult.entry != null) {
         debugPrint('Health data processed successfully: ${aiResult.entry?.type}');
@@ -57,6 +80,7 @@ class ChatProvider extends ChangeNotifier {
               id: '${messageId}_ai',
               text: aiResult.reply ?? 'Health data recorded successfully',
               isUser: false,
+              conversationId: _currentConversationId!,
               timestamp: DateTime.now(),
               parsedEntry: aiResult.entry,
               aiRefined: true,
@@ -74,6 +98,7 @@ class ChatProvider extends ChangeNotifier {
             id: '${messageId}_trend_prompt',
             text: 'Would you like to see your ${vitalType?.toLowerCase()} trend?',
             isUser: false,
+            conversationId: _currentConversationId!,
             timestamp: DateTime.now(),
             showTrendButtons: true,
             trendType: vitalType,
@@ -85,6 +110,7 @@ class ChatProvider extends ChangeNotifier {
           id: '${messageId}_ai',
           text: aiResult?.reply ?? 'I understand. Let me know if you have any health data to record.',
           isUser: false,
+          conversationId: _currentConversationId!,
           timestamp: DateTime.now(),
         ));
       }
@@ -97,6 +123,7 @@ class ChatProvider extends ChangeNotifier {
         id: '${messageId}_ai',
         text: 'Sorry, I had trouble processing that message. Please try again.',
         isUser: false,
+        conversationId: _currentConversationId!,
         timestamp: DateTime.now(),
         parseFailed: true,
         aiErrorReason: e.toString(),
@@ -107,16 +134,26 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> loadMessages() async {
+  Future<void> loadMessages([String? conversationId]) async {
+    // If no conversation ID provided, use the current one
+    final targetConversationId = conversationId ?? _currentConversationId;
+    if (targetConversationId == null) {
+      debugPrint('No conversation ID provided for loading messages');
+      return;
+    }
+    
     try {
       final response = await http.get(
           Uri.parse(
-              '${AppConfig.backendBaseUrl}/api/admin/table/messages?page=1&limit=100'),
+              '${AppConfig.backendBaseUrl}/api/messages?conversation_id=$targetConversationId&limit=100'),
           headers: {'Content-Type': 'application/json'});
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
         final items = json['items'] as List;
+
+        // Clear existing messages for this conversation
+        _messages.removeWhere((msg) => msg.conversationId == targetConversationId);
 
         for (final item in items.reversed) {
           final role = item['role'] as String?;
@@ -125,6 +162,8 @@ class ChatProvider extends ChangeNotifier {
               DateTime.now().microsecondsSinceEpoch.toString();
           final processed = item['processed'] as int? ?? 0;
           final interpretationJson = item['interpretation_json'] as String?;
+          // Get conversation_id from backend data, fallback to targetConversationId
+          final msgConversationId = item['conversation_id'] as String? ?? targetConversationId;
 
           if (content != null && content.isNotEmpty) {
             if (role == 'user') {
@@ -137,6 +176,7 @@ class ChatProvider extends ChangeNotifier {
                 id: messageId,
                 text: content,
                 isUser: true,
+                conversationId: msgConversationId,
                 timestamp: timestamp,
               ));
 
@@ -152,6 +192,7 @@ class ChatProvider extends ChangeNotifier {
                       id: '${messageId}_ai',
                       text: reply,
                       isUser: false,
+                      conversationId: msgConversationId,
                       timestamp: timestamp.add(const Duration(seconds: 1)),
                       aiRefined: parsed,
                       parseSource: parsed ? 'ai' : null,
@@ -165,16 +206,14 @@ class ChatProvider extends ChangeNotifier {
           }
         }
 
-        debugPrint('Successfully loaded ${_messages.length} messages from backend');
+        debugPrint('Successfully loaded ${_messages.where((m) => m.conversationId == targetConversationId).length} messages from backend for conversation: $targetConversationId');
         notifyListeners();
       } else {
         debugPrint('Failed to load messages from backend: ${response.statusCode}');
-        _messages.clear();
         notifyListeners();
       }
     } catch (e) {
       debugPrint('Failed to load messages: $e');
-      _messages.clear();
       notifyListeners();
     }
   }
@@ -186,9 +225,16 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> clearAllMessages() async {
     try {
-      _messages.clear();
+      if (_currentConversationId != null) {
+        // Clear messages for current conversation only
+        _messages.removeWhere((msg) => msg.conversationId == _currentConversationId);
+        debugPrint('Successfully cleared messages for conversation: $_currentConversationId');
+      } else {
+        // Clear all messages if no specific conversation
+        _messages.clear();
+        debugPrint('Successfully cleared all local messages');
+      }
       notifyListeners();
-      debugPrint('Successfully cleared local messages');
     } catch (e) {
       debugPrint('Failed to clear messages: $e');
     }
@@ -196,11 +242,14 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> handleTrendResponse(
       String messageId, bool showTrend, String type, String category) async {
+    if (_currentConversationId == null) return;
+    
     if (!showTrend) {
       _messages.add(ChatMessage(
         id: '${messageId}_trend_no',
         text: 'Understood. Let me know if you need anything else!',
         isUser: false,
+        conversationId: _currentConversationId!,
         timestamp: DateTime.now(),
       ));
       notifyListeners();
@@ -224,6 +273,7 @@ class ChatProvider extends ChangeNotifier {
           id: '${messageId}_trend_analysis',
           text: resp.body,
           isUser: false,
+          conversationId: _currentConversationId!,
           timestamp: DateTime.now(),
         ));
       } else {
@@ -231,6 +281,7 @@ class ChatProvider extends ChangeNotifier {
           id: '${messageId}_trend_error',
           text: 'Sorry, I had trouble generating the trend analysis.',
           isUser: false,
+          conversationId: _currentConversationId!,
           timestamp: DateTime.now(),
           parseFailed: true,
         ));
@@ -240,6 +291,7 @@ class ChatProvider extends ChangeNotifier {
         id: '${messageId}_trend_error',
         text: 'Sorry, there was an error analyzing the trend.',
         isUser: false,
+        conversationId: _currentConversationId!,
         timestamp: DateTime.now(),
         parseFailed: true,
         aiErrorReason: e.toString(),
