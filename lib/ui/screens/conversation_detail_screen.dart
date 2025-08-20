@@ -1,17 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/chat_provider.dart';
-import '../screens/user_settings_screen.dart';
 import '../common/hi_doc_app_bar.dart';
 import '../../models/chat_message.dart';
 
-class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+class ConversationDetailScreen extends StatefulWidget {
+  final String conversationId;
+  final String title;
+  final String conversationType;
+
+  const ConversationDetailScreen({
+    super.key,
+    required this.conversationId,
+    required this.title,
+    this.conversationType = 'direct',
+  });
+
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  State<ConversationDetailScreen> createState() => _ConversationDetailScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
 
@@ -20,9 +29,8 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final chatProvider = context.read<ChatProvider>();
-      // Set a default conversation ID for the main chat screen
-      chatProvider.setCurrentConversation('default');
-      chatProvider.loadMessages('default');
+      chatProvider.setCurrentConversation(widget.conversationId);
+      chatProvider.loadMessages(widget.conversationId);
     });
   }
 
@@ -31,7 +39,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final chat = context.watch<ChatProvider>();
     return Scaffold(
       appBar: HiDocAppBar(
-        pageTitle: 'Chat',
+        pageTitle: widget.title,
         actions: [
           // Debug button for testing message persistence
           IconButton(
@@ -86,12 +94,6 @@ class _ChatScreenState extends State<ChatScreen> {
             },
             tooltip: 'Clear All Messages',
           ),
-          IconButton(
-            icon: const Icon(Icons.person_outline),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const UserSettingsScreen()),
-            ),
-          )
         ],
       ),
       body: Column(
@@ -456,7 +458,3 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 }
-
-
-
-

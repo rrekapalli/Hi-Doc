@@ -1,5 +1,7 @@
 export interface DbMessage {
   id: string;
+  conversation_id: string;
+  sender_id: string;
   user_id: string;
   role: string;
   content: string;

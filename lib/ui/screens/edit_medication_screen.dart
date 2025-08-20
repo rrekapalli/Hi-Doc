@@ -84,18 +84,30 @@ class _EditMedicationScreenState extends State<EditMedicationScreen> {
 
     try {
       final db = context.read<DatabaseService>();
-      final updatedMedication = {
+      
+      if (_nameController.text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter medication name')),
+        );
+        return;
+      }
+      final dosage = _doseController.text.isNotEmpty && _doseUnitController.text.isNotEmpty
+          ? '${_doseController.text} ${_doseUnitController.text}'.trim()
+          : null;
+          
+      final medicationData = {
         'id': widget.medication['id'],
+        'user_id': 'prototype-user-12345',  // Using the hardcoded prototype user
         'name': _nameController.text,
-        'dose': double.tryParse(_doseController.text),
-        'doseUnit': _doseUnitController.text,
-        'frequencyPerDay': int.tryParse(_frequencyController.text),
-        'scheduleType': _scheduleType,
-        'fromDate': _scheduleType == 'fixed' ? _fromDate : null,
-        'toDate': _scheduleType == 'fixed' ? _toDate : null,
+        'dosage': dosage,
+        'frequency_per_day': int.tryParse(_frequencyController.text),
+        'schedule_type': _scheduleType,
+        'from_date': _scheduleType == 'fixed' ? _fromDate?.millisecondsSinceEpoch : null,
+        'to_date': _scheduleType == 'fixed' ? _toDate?.millisecondsSinceEpoch : null,
+        'is_deleted': 0,
       };
 
-      await db.updateMedication(updatedMedication);
+      await db.updateMedication(medicationData);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

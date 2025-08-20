@@ -32,6 +32,14 @@ export function migrate() {
   upgradeHealthDataTableIfNeeded();
   console.log('Health_data table upgrade completed');
   
+  console.log('Running users table upgrade...');
+  upgradeUsersTableIfNeeded();
+  console.log('Users table upgrade completed');
+  
+  console.log('Running default conversation upgrade...');
+  upgradeDefaultConversationIfNeeded();
+  console.log('Default conversation upgrade completed');
+  
   console.log('Seeding global param targets...');
   seedGlobalParamTargets();
   console.log('Global param targets seeded');
@@ -212,5 +220,79 @@ function upgradeHealthDataTableIfNeeded(): void {
     }
   } catch (e) {
     console.warn('health_data table upgrade skipped', e);
+  }
+}
+
+function upgradeUsersTableIfNeeded(): void {
+  try {
+    const info = db.prepare('PRAGMA table_info(users)').all() as any[];
+    
+    if (info.length === 0) {
+      console.log('Users table does not exist, will be created by schema');
+      return;
+    }
+    
+    console.log('Users table exists with columns:', info.map(c => c.name));
+    
+    const hasPhone = info.some(c => c.name === 'phone');
+    const hasIsExternal = info.some(c => c.name === 'is_external');
+    
+    let needsUpgrade = false;
+    
+    if (!hasPhone) {
+      // Add phone column
+      console.log('Adding phone column to users table...');
+      db.prepare('ALTER TABLE users ADD COLUMN phone TEXT').run();
+      console.log('Successfully added phone column to users table');
+      needsUpgrade = true;
+    } else {
+      console.log('Users table already has phone column');
+    }
+    
+    if (!hasIsExternal) {
+      // Add is_external column with default value
+      console.log('Adding is_external column to users table...');
+      db.prepare('ALTER TABLE users ADD COLUMN is_external INTEGER DEFAULT 0').run();
+      console.log('Successfully added is_external column to users table');
+      needsUpgrade = true;
+    } else {
+      console.log('Users table already has is_external column');
+    }
+    
+    if (!needsUpgrade) {
+      console.log('Users table is up to date');
+    }
+  } catch (e) {
+    console.warn('users table upgrade skipped', e);
+  }
+}
+
+function upgradeDefaultConversationIfNeeded(): void {
+  try {
+    console.log('Checking if default conversation title needs update...');
+    
+    // Check if there's a conversation with title 'Default' that should be renamed to 'Me'
+    const defaultConv = db.prepare(`
+      SELECT id, title FROM conversations 
+      WHERE (title = 'Default' OR id = 'default-conversation')
+      AND is_default = 1
+    `).get() as any;
+    
+    if (defaultConv) {
+      console.log('Found default conversation with title:', defaultConv.title);
+      
+      if (defaultConv.title === 'Default') {
+        console.log('Updating default conversation title from "Default" to "Me"...');
+        db.prepare('UPDATE conversations SET title = ? WHERE id = ?')
+          .run('Me', defaultConv.id);
+        console.log('Successfully updated default conversation title to "Me"');
+      } else {
+        console.log('Default conversation title is already correct:', defaultConv.title);
+      }
+    } else {
+      console.log('No default conversation found to update');
+    }
+  } catch (e) {
+    console.warn('default conversation upgrade skipped', e);
   }
 }

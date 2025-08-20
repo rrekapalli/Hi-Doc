@@ -3,6 +3,7 @@ import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import express, { Request, Response } from 'express';
+import { fileURLToPath } from 'url';
 import cors from 'cors';
 import router from './routes.js';
 import { migrate } from './db.js';
@@ -19,6 +20,10 @@ logger.info('Starting Hi-Doc backend service');
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+
+// Import middleware and routes
+import { authMiddleware } from './middleware/auth.js';
+import conversationsRouter from './routes/conversations.js';
 
 logger.info('Logger initialized', { level: logger.level });
 migrate();
@@ -41,6 +46,10 @@ app.use((req, res, next) => {
 });
 
 app.get('/healthz', (_req: Request, res: Response) => res.json({ ok: true }));
+
+// Add middleware and routes
+app.use(authMiddleware);
+app.use(conversationsRouter);
 app.use(router);
 
 const BASE_PORT = Number(process.env.PORT || 4000);
