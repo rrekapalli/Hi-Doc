@@ -118,6 +118,60 @@ class DatabaseService {
     }
   }
 
+  // Search for users to add to conversations
+  Future<List<Map<String, dynamic>>> searchUsers({
+    String? query,
+    int limit = 20,
+  }) async {
+    final headers = await _getAuthHeaders();
+    
+    final uri = Uri.parse('$_backendBaseUrl/api/users/search').replace(
+      queryParameters: {
+        if (query != null && query.isNotEmpty) 'query': query,
+        'limit': limit.toString(),
+      },
+    );
+    
+    final response = await http.get(uri, headers: headers);
+
+    if (response.statusCode == 200) {
+      return List<Map<String, dynamic>>.from(json.decode(response.body));
+    } else {
+      throw Exception('Failed to search users');
+    }
+  }
+
+  // Create/register external contact as user
+  Future<String> createExternalUser({
+    required String name,
+    String? email,
+    String? phone,
+  }) async {
+    final headers = await _getAuthHeaders();
+    headers['Content-Type'] = 'application/json';
+    
+    // Use email or phone as the identifier, with phone as fallback
+    final identifier = email ?? '$phone@phone.local';
+    
+    final response = await http.post(
+      Uri.parse('$_backendBaseUrl/api/users/external'),
+      headers: headers,
+      body: json.encode({
+        'name': name,
+        'email': identifier,
+        'phone': phone,
+        'isExternal': true,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['id'] as String;
+    } else {
+      throw Exception('Failed to create external user');
+    }
+  }
+
   // In-memory stores for web fallback
   final List<HealthEntry> _entries = [];
   final List<Message> _messages = [];

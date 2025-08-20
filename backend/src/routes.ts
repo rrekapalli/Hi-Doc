@@ -208,6 +208,86 @@ router.get('/api/conversations/:id/members', async (req: Request, res: Response)
   }
 });
 
+// Search users endpoint for creating new conversations
+router.get('/api/users/search', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { query, limit = 20 } = req.query;
+    const searchLimit = Math.min(parseInt(limit as string) || 20, 50);
+    
+    let users;
+    if (query && typeof query === 'string') {
+      // Search users by name or email (case-insensitive)
+      const searchQuery = `%${query.toLowerCase()}%`;
+      users = db.prepare(`
+        SELECT id, name, email, photo_url 
+        FROM users 
+        WHERE id != ? AND (
+          LOWER(name) LIKE ? OR 
+          LOWER(email) LIKE ?
+        )
+        ORDER BY name ASC
+        LIMIT ?
+      `).all(userId, searchQuery, searchQuery, searchLimit);
+    } else {
+      // Return all users except current user
+      users = db.prepare(`
+        SELECT id, name, email, photo_url 
+        FROM users 
+        WHERE id != ?
+        ORDER BY name ASC
+        LIMIT ?
+      `).all(userId, searchLimit);
+    }
+
+    res.json(users);
+  } catch (error) {
+    logger.error('Error searching users:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create external user endpoint for device contacts
+router.post('/api/users/external', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { name, email, phone, isExternal } = req.body;
+    if (!name || (!email && !phone)) {
+      return res.status(400).json({ error: 'Name and either email or phone required' });
+    }
+
+    // Use email or create a unique identifier for phone-only contacts
+    const identifier = email || `${phone}@phone.local`;
+    
+    // Check if user already exists
+    const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(identifier);
+    if (existing) {
+      return res.json(existing);
+    }
+
+    // Create new external user
+    const id = randomUUID();
+    db.prepare(`
+      INSERT INTO users (id, name, email, phone, photo_url, is_external) 
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, name, identifier, phone || null, null, isExternal ? 1 : 0);
+
+    const newUser = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    res.json(newUser);
+  } catch (error) {
+    logger.error('Error creating external user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Runtime debug flags (can be toggled without restart)
 const runtimeDebug: { db:boolean; ai:boolean } = {
   db: process.env.DEBUG_DB === '1',

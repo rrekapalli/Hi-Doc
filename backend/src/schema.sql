@@ -6,7 +6,9 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT,
   email TEXT UNIQUE,
-  photo_url TEXT
+  photo_url TEXT,
+  phone TEXT,
+  is_external INTEGER DEFAULT 0
 );
 
 -- Create conversations table
@@ -152,6 +154,19 @@ CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
 -- Create default user for development
 INSERT OR IGNORE INTO users (id, name, email) 
 VALUES ('prototype-user-12345', 'Dev User', 'dev@example.com');
+
+-- Add some sample users for testing search functionality
+INSERT OR IGNORE INTO users (id, name, email, photo_url) VALUES 
+  ('user-001', 'Alice Johnson', 'alice.johnson@example.com', NULL),
+  ('user-002', 'Bob Smith', 'bob.smith@example.com', NULL),
+  ('user-003', 'Carol Davis', 'carol.davis@example.com', NULL),
+  ('user-004', 'David Wilson', 'david.wilson@example.com', NULL),
+  ('user-005', 'Emma Brown', 'emma.brown@example.com', NULL),
+  ('user-006', 'Frank Miller', 'frank.miller@example.com', NULL),
+  ('user-007', 'Grace Lee', 'grace.lee@example.com', NULL),
+  ('user-008', 'Henry Taylor', 'henry.taylor@example.com', NULL),
+  ('user-009', 'Ivy Chen', 'ivy.chen@example.com', NULL),
+  ('user-010', 'Jack Roberts', 'jack.roberts@example.com', NULL);
 
 -- Create default conversation
 INSERT OR IGNORE INTO conversations (

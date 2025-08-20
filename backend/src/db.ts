@@ -32,6 +32,10 @@ export function migrate() {
   upgradeHealthDataTableIfNeeded();
   console.log('Health_data table upgrade completed');
   
+  console.log('Running users table upgrade...');
+  upgradeUsersTableIfNeeded();
+  console.log('Users table upgrade completed');
+  
   console.log('Seeding global param targets...');
   seedGlobalParamTargets();
   console.log('Global param targets seeded');
@@ -212,5 +216,49 @@ function upgradeHealthDataTableIfNeeded(): void {
     }
   } catch (e) {
     console.warn('health_data table upgrade skipped', e);
+  }
+}
+
+function upgradeUsersTableIfNeeded(): void {
+  try {
+    const info = db.prepare('PRAGMA table_info(users)').all() as any[];
+    
+    if (info.length === 0) {
+      console.log('Users table does not exist, will be created by schema');
+      return;
+    }
+    
+    console.log('Users table exists with columns:', info.map(c => c.name));
+    
+    const hasPhone = info.some(c => c.name === 'phone');
+    const hasIsExternal = info.some(c => c.name === 'is_external');
+    
+    let needsUpgrade = false;
+    
+    if (!hasPhone) {
+      // Add phone column
+      console.log('Adding phone column to users table...');
+      db.prepare('ALTER TABLE users ADD COLUMN phone TEXT').run();
+      console.log('Successfully added phone column to users table');
+      needsUpgrade = true;
+    } else {
+      console.log('Users table already has phone column');
+    }
+    
+    if (!hasIsExternal) {
+      // Add is_external column with default value
+      console.log('Adding is_external column to users table...');
+      db.prepare('ALTER TABLE users ADD COLUMN is_external INTEGER DEFAULT 0').run();
+      console.log('Successfully added is_external column to users table');
+      needsUpgrade = true;
+    } else {
+      console.log('Users table already has is_external column');
+    }
+    
+    if (!needsUpgrade) {
+      console.log('Users table is up to date');
+    }
+  } catch (e) {
+    console.warn('users table upgrade skipped', e);
   }
 }

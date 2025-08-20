@@ -31,6 +31,8 @@ dependencies:
   timeago: ^3.6.1
   flutter_secure_storage: ^9.2.4
   llama_cpp_dart: ^0.1.0 # earliest available version for local tiny LLaMA inference support
+  contacts_service: ^0.6.3 # For accessing device contacts
+  permission_handler: ^11.3.1 # For requesting contacts permission
 
   # Optional (choose one chart lib); syncfusion requires license key for prod
   # syncfusion_flutter_charts: ^26.1.41
