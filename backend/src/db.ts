@@ -36,6 +36,10 @@ export function migrate() {
   upgradeUsersTableIfNeeded();
   console.log('Users table upgrade completed');
   
+  console.log('Running default conversation upgrade...');
+  upgradeDefaultConversationIfNeeded();
+  console.log('Default conversation upgrade completed');
+  
   console.log('Seeding global param targets...');
   seedGlobalParamTargets();
   console.log('Global param targets seeded');
@@ -260,5 +264,35 @@ function upgradeUsersTableIfNeeded(): void {
     }
   } catch (e) {
     console.warn('users table upgrade skipped', e);
+  }
+}
+
+function upgradeDefaultConversationIfNeeded(): void {
+  try {
+    console.log('Checking if default conversation title needs update...');
+    
+    // Check if there's a conversation with title 'Default' that should be renamed to 'Me'
+    const defaultConv = db.prepare(`
+      SELECT id, title FROM conversations 
+      WHERE (title = 'Default' OR id = 'default-conversation')
+      AND is_default = 1
+    `).get() as any;
+    
+    if (defaultConv) {
+      console.log('Found default conversation with title:', defaultConv.title);
+      
+      if (defaultConv.title === 'Default') {
+        console.log('Updating default conversation title from "Default" to "Me"...');
+        db.prepare('UPDATE conversations SET title = ? WHERE id = ?')
+          .run('Me', defaultConv.id);
+        console.log('Successfully updated default conversation title to "Me"');
+      } else {
+        console.log('Default conversation title is already correct:', defaultConv.title);
+      }
+    } else {
+      console.log('No default conversation found to update');
+    }
+  } catch (e) {
+    console.warn('default conversation upgrade skipped', e);
   }
 }

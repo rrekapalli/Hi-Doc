@@ -143,10 +143,17 @@ class ChatProvider extends ChangeNotifier {
     }
     
     try {
+      // Get authentication headers
+      final token = await authService?.getIdToken();
+      final headers = {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token'
+      };
+
       final response = await http.get(
           Uri.parse(
               '${AppConfig.backendBaseUrl}/api/messages?conversation_id=$targetConversationId&limit=100'),
-          headers: {'Content-Type': 'application/json'});
+          headers: headers);
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;

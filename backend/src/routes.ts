@@ -1379,7 +1379,11 @@ router.post('/api/param-targets/match', (req: Request, res: Response) => {
 });
 
 router.get('/api/messages', (req: Request, res: Response) => {
-  const userId = (req as any).userId;
+  const userId = req.user?.id;
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
   const conversationId = req.query.conversation_id;
   const limit = Math.min(Number(req.query.limit || 50), 500);
   
