@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import request from 'supertest';
 import express from 'express';
 import cors from 'cors';
@@ -38,14 +39,23 @@ async function createApp() {
 
   try {
     // Create health record
-    const hRes = await request(app).post('/api/health').set('Authorization', `Bearer ${token}`).send({ type: 'glucose', value: '95', unit: 'mg/dL' });
+    const hRes = await request(app).post('/api/health').set('Authorization', `Bearer ${token}`).send({ 
+      type: 'glucose', 
+      value: '95', 
+      unit: 'mg/dL',
+      conversation_id: 'default-conversation'
+    });
     log(hRes.status === 201, 'create health');
 
   const listRes = await request(app).get('/api/health').set('Authorization', `Bearer ${token}`);
   log(listRes.status === 200 && Array.isArray(listRes.body.items) && listRes.body.items.length >= 1, 'list health');
 
     // Medication create
-    const mRes = await request(app).post('/api/medications').set('Authorization', `Bearer ${token}`).send({ name: 'Paracetamol', dosage: '500mg' });
+    const mRes = await request(app).post('/api/medications').set('Authorization', `Bearer ${token}`).send({ 
+      name: 'Paracetamol', 
+      dosage: '500mg',
+      conversation_id: 'default-conversation'
+    });
     log(mRes.status === 201, 'create medication');
 
     const medsList = await request(app).get('/api/medications').set('Authorization', `Bearer ${token}`);

@@ -61,7 +61,8 @@ class _DataScreenState extends State<DataScreen> {
 
   Future<void> _fetchRows({int page = 1}) async {
     final table = _selectedTable;
-    if (table == null) return;
+    if (table == null || _loading) return; // Prevent multiple simultaneous requests
+    
     setState(() {
       _loading = true;
       _error = null;

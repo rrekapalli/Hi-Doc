@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/auth_provider.dart';
@@ -17,29 +17,29 @@ void main() async {
   // Ensure Flutter is properly initialized
   WidgetsFlutterBinding.ensureInitialized();
   
-  // For web, add a small delay to ensure proper initialization
-  if (kIsWeb) {
-    await Future.delayed(const Duration(milliseconds: 100));
-  }
-  
   // Initialize services
   final notificationService = NotificationService();
-  if (!kIsWeb) {
-    await notificationService.init();
-  }
-  
   final db = DatabaseService(notificationService: notificationService);
-  await db.init();
   final authService = AuthService();
+  
+  // Initialize services in parallel for better performance
+  await Future.wait([
+    if (!kIsWeb) notificationService.init(),
+    db.init(),
+  ]);
   
   try {
     await authService.initFirebase();
   } catch (e) {
     // Firebase not configured; proceed without remote auth (Google sign-in may fail)
-    debugPrint('Firebase initialization skipped: $e');
+    if (kDebugMode) {
+      debugPrint('Firebase initialization skipped: $e');
+    }
   }
   
-  debugPrint('Hi-Doc backend URL: ${AppConfig.backendBaseUrl}');
+  if (kDebugMode) {
+    debugPrint('Hi-Doc backend URL: ${AppConfig.backendBaseUrl}');
+  }
   
   runApp(HiDocApp(db: db, authService: authService));
 }
