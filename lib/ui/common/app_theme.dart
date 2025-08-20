@@ -99,6 +99,27 @@ class AppTheme {
         ),
         foregroundColor: textColor,
       ),
+      navigationBarTheme: NavigationBarThemeData(
+        indicatorColor: primarySoft,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        height: 64,
+        labelTextStyle: WidgetStateProperty.resolveWith<TextStyle?>((states) {
+          final selected = states.contains(WidgetState.selected);
+          return TextStyle(
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? primary : textSoft,
+            letterSpacing: .1,
+          );
+        }),
+        iconTheme: WidgetStateProperty.resolveWith<IconThemeData?>((states) {
+          final selected = states.contains(WidgetState.selected);
+          return IconThemeData(
+            color: selected ? primary : textSoft,
+          );
+        }),
+      ),
     );
   }
 

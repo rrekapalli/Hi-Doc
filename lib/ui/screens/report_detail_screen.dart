@@ -322,7 +322,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
   Widget _buildPreviewTab() {
     return Container(
       padding: const EdgeInsets.all(16),
-      child: widget.report.fileType == ReportFileType.pdf
+  child: (widget.report.fileType == ReportFileType.pdf ||
+      widget.report.filePath.toLowerCase().endsWith('.pdf') ||
+      (widget.report.displayName.toLowerCase().endsWith('.pdf')))
           ? _buildPdfViewer()
           : _buildImageViewer(),
     );

@@ -27,16 +27,35 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: _pages[_index],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: 'Messages'),
-          NavigationDestination(icon: Icon(Icons.medication), label: 'Medications'),
-          NavigationDestination(icon: Icon(Icons.description_outlined), label: 'Reports'),
-          NavigationDestination(icon: Icon(Icons.local_activity_outlined), label: 'Activities'),
-          NavigationDestination(icon: Icon(Icons.table_chart_outlined), label: 'Data'),
-        ],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border(
+            top: BorderSide(
+              color: Theme.of(context).dividerColor.withOpacity(.6),
+              width: 1,
+            ),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(.04),
+              blurRadius: 12,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: NavigationBar(
+          height: 64,
+          selectedIndex: _index,
+          onDestinationSelected: (i) => setState(() => _index = i),
+          destinations: const [
+            NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: 'Messages'),
+            NavigationDestination(icon: Icon(Icons.medication), label: 'Medications'),
+            NavigationDestination(icon: Icon(Icons.description_outlined), label: 'Reports'),
+            NavigationDestination(icon: Icon(Icons.local_activity_outlined), label: 'Activities'),
+            NavigationDestination(icon: Icon(Icons.table_chart_outlined), label: 'Data'),
+          ],
+        ),
       ),
     );
   }

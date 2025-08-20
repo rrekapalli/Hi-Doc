@@ -367,17 +367,21 @@ class ReportsService {
 
   /// Convert backend JSON to Report model
   Report _reportFromBackendJson(Map<String, dynamic> json) {
+    final filePath = json['file_path']?.toString();
+    final originalName = (json['original_file_name'] ?? json['original_name'])?.toString();
+    final typeStr = json['file_type']?.toString();
+
     return Report(
       id: json['id'],
       userId: json['user_id'],
       conversationId: json['conversation_id'],
-      filePath: json['file_path'],
-      fileType: _parseFileType(json['file_type']),
+      filePath: filePath ?? '',
+      fileType: _parseFileType(typeStr, filePath: filePath, originalName: originalName),
       source: _parseSource(json['source']),
       aiSummary: json['ai_summary'],
       createdAt: _parseDateTime(json['created_at']),
       parsed: json['parsed'] == 1 || json['parsed'] == true,
-      originalFileName: json['original_file_name'] ?? json['original_name'],
+      originalFileName: originalName,
     );
   }
 
@@ -407,13 +411,38 @@ class ReportsService {
     }
   }
 
-  ReportFileType _parseFileType(String? type) {
-    if (type == null) return ReportFileType.unknown;
-    try {
-      return ReportFileType.values.firstWhere((e) => e.name == type);
-    } catch (e) {
-      return ReportFileType.unknown;
+  ReportFileType _parseFileType(String? type, {String? filePath, String? originalName}) {
+    // Normalize
+    final t = type?.toLowerCase().trim();
+
+    // 1) Direct enum names from older clients
+    if (t == 'pdf') return ReportFileType.pdf;
+    if (t == 'image') return ReportFileType.image;
+
+    // 2) Common MIME types from backend (multer)
+    if (t != null) {
+      if (t == 'application/pdf' || t.endsWith('/pdf')) return ReportFileType.pdf;
+      if (t.startsWith('image/')) return ReportFileType.image;
     }
+
+    // 3) Fallback to extension from original name or stored path
+    final candidate = (originalName?.isNotEmpty == true ? originalName : filePath) ?? '';
+    if (candidate.isNotEmpty) {
+      final ext = path.extension(candidate).toLowerCase();
+      switch (ext) {
+        case '.pdf':
+          return ReportFileType.pdf;
+        case '.jpg':
+        case '.jpeg':
+        case '.png':
+        case '.gif':
+        case '.bmp':
+        case '.webp':
+          return ReportFileType.image;
+      }
+    }
+
+    return ReportFileType.unknown;
   }
 
   ReportSource _parseSource(String? source) {
