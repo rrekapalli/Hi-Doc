@@ -8,14 +8,21 @@ enum ReportFileType { pdf, image, unknown }
 @JsonSerializable()
 class Report {
   final String id;
+  @JsonKey(name: 'user_id')
   final String userId;
+  @JsonKey(name: 'conversation_id')
   final String? conversationId;
+  @JsonKey(name: 'file_path')
   final String filePath;
+  @JsonKey(name: 'file_type')
   final ReportFileType fileType;
   final ReportSource source;
+  @JsonKey(name: 'ai_summary')
   final String? aiSummary;
+  @JsonKey(name: 'created_at')
   final DateTime createdAt;
   final bool parsed;
+  @JsonKey(name: 'original_file_name')
   final String? originalFileName;
 
   const Report({

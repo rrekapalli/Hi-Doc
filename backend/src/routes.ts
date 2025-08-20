@@ -29,6 +29,32 @@ interface DbMessage {
 
 const router = Router();
 
+// Prototype mode: Skip authentication and use a hardcoded user ID
+router.use((req: Request, res: Response, next: NextFunction) => {
+  // Use a fixed prototype user ID and ensure it exists
+  const prototypeUserId = 'prototype-user-12345';
+  const defaultEmail = 'prototype@example.com';
+  
+  // Check if user exists, create if not
+  let user = db.prepare('SELECT * FROM users WHERE id = ?').get(prototypeUserId);
+  if (!user) {
+    logger.debug('Creating prototype user in middleware', { userId: prototypeUserId, email: defaultEmail });
+    try {
+      db.prepare('INSERT OR IGNORE INTO users (id, name, email, photo_url) VALUES (?, ?, ?, ?)').run(prototypeUserId, 'Prototype User', defaultEmail, null);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(prototypeUserId);
+      logger.debug('Prototype user created in middleware', { user });
+    } catch (e) {
+      logger.error('Failed to create prototype user in middleware', { error: e });
+    }
+  }
+  
+  // Set both userId and user.id to support both patterns
+  (req as any).userId = prototypeUserId;
+  (req as any).user = { id: prototypeUserId, name: 'Prototype User', email: defaultEmail };
+  logger.debug('Using hardcoded prototype user', { userId: prototypeUserId, path: req.path });
+  next();
+});
+
 // Import conversation-related functions
 import {
   getConversations,
@@ -482,30 +508,6 @@ router.post('/api/ai/reload-prompts', (_req: Request, res: Response) => {
       detail: error.message 
     });
   }
-});
-
-// Prototype mode: Skip authentication and use a hardcoded user ID
-router.use((req: Request, res: Response, next: NextFunction) => {
-  // Use a fixed prototype user ID and ensure it exists
-  const prototypeUserId = 'prototype-user-12345';
-  const defaultEmail = 'prototype@example.com';
-  
-  // Check if user exists, create if not
-  let user = db.prepare('SELECT * FROM users WHERE id = ?').get(prototypeUserId);
-  if (!user) {
-    logger.debug('Creating prototype user in middleware', { userId: prototypeUserId, email: defaultEmail });
-    try {
-      db.prepare('INSERT OR IGNORE INTO users (id, name, email, photo_url) VALUES (?, ?, ?, ?)').run(prototypeUserId, 'Prototype User', defaultEmail, null);
-      user = db.prepare('SELECT * FROM users WHERE id = ?').get(prototypeUserId);
-      logger.debug('Prototype user created in middleware', { user });
-    } catch (e) {
-      logger.error('Failed to create prototype user in middleware', { error: e });
-    }
-  }
-  
-  (req as any).userId = prototypeUserId;
-  logger.debug('Using hardcoded prototype user', { userId: prototypeUserId, path: req.path });
-  next();
 });
 
 // Simple regex-based health message parser as fallback
@@ -1248,55 +1250,98 @@ router.delete('/api/medications/:id', (req: Request, res: Response) => {
 const reportSchema = z.object({
   id: z.string().optional(),
   user_id: z.string().optional(),
-  conversation_id: z.string().optional(),
+  conversation_id: z.string().nullable().optional(),
   file_path: z.string(),
-  file_type: z.string().optional(),
-  source: z.string().optional(),
-  ai_summary: z.string().optional(),
-  created_at: z.number().int().optional(),
-  parsed: z.number().int().min(0).max(1).optional(),
+  file_type: z.string().optional(), // frontend sends 'file_type'
+  type: z.string().optional(), // also accept 'type' for compatibility
+  source: z.string().optional(), // frontend sends 'source'
+  ai_summary: z.string().nullable().optional(),
+  created_at: z.union([z.string(), z.number()]).optional(), // accept both string and number
+  upload_date: z.number().int().optional(), // also accept 'upload_date' as number
+  parsed: z.number().or(z.boolean()).optional(), // frontend sends 'parsed'
 });
 
 router.post('/api/reports', (req: Request, res: Response) => {
   const p = reportSchema.safeParse(req.body);
-  if (!p.success) return res.status(400).json({ error: p.error.flatten() });
-  const userId = (req as any).userId;
+  if (!p.success) {
+    logger.error('Report validation failed', { error: p.error.flatten(), body: req.body });
+    return res.status(400).json({ error: p.error.flatten() });
+  }
+  const userId = (req as any).user?.id || (req as any).userId;
   const reportId = p.data.id || randomUUID();
-  const { conversation_id, file_path, file_type, source, ai_summary, created_at, parsed } = p.data;
-  const ts = created_at ?? Date.now();
+  const { conversation_id, file_path, ai_summary } = p.data;
   
-  db.prepare(`INSERT INTO reports 
-    (id, user_id, conversation_id, file_path, file_type, source, ai_summary, created_at, parsed) 
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(reportId, userId, conversation_id || null, file_path, file_type || 'unknown', 
-         source || 'upload', ai_summary || null, ts, parsed || 0);
+  // Handle both file_type and type fields
+  const fileType = p.data.file_type || p.data.type || 'unknown';
+  const source = p.data.source || 'upload';
   
-  res.status(201).json({ 
-    id: reportId, 
-    user_id: userId,
-    conversation_id: conversation_id || null,
-    file_path, 
-    file_type: file_type || 'unknown',
-    source: source || 'upload',
-    ai_summary: ai_summary || null,
-    created_at: ts,
-    parsed: parsed || 0
-  });
+  // Handle both created_at and upload_date fields
+  let timestamp: number;
+  if (p.data.created_at) {
+    // Handle both number (timestamp) and string (ISO) formats
+    if (typeof p.data.created_at === 'number') {
+      timestamp = p.data.created_at;
+    } else {
+      timestamp = new Date(p.data.created_at).getTime();
+    }
+  } else if (p.data.upload_date) {
+    timestamp = p.data.upload_date;
+  } else {
+    timestamp = Date.now();
+  }
+  
+  // conversation_id is required by database, use default if not provided
+  const conversationId = conversation_id || 'default-conversation';
+  
+  try {
+    db.prepare(`INSERT INTO reports 
+      (id, user_id, conversation_id, file_path, type, ai_summary, upload_date) 
+      VALUES (?,?,?,?,?,?,?)`)
+      .run(reportId, userId, conversationId, file_path, fileType, ai_summary || null, timestamp);
+    
+    res.status(201).json({ 
+      id: reportId, 
+      user_id: userId,
+      conversation_id: conversationId,
+      file_path, 
+      file_type: fileType, // return as file_type for frontend
+      type: fileType, // also include for compatibility
+      source: source,
+      ai_summary: ai_summary || null,
+      created_at: new Date(timestamp).toISOString(), // return as ISO string for frontend
+      upload_date: timestamp, // also include for compatibility
+      parsed: 0
+    });
+  } catch (error) {
+    logger.error('Database error creating report', { error, reportId, userId });
+    res.status(500).json({ error: 'Failed to create report' });
+  }
 });
 
 router.get('/api/reports', (req: Request, res: Response) => {
-  const userId = (req as any).userId;
+  const userId = (req as any).user?.id || (req as any).userId;
   const file_type = req.query.file_type as string | undefined;
   let sql = 'SELECT * FROM reports WHERE user_id = ?';
   const params: any[] = [userId];
-  if (file_type) { sql += ' AND file_type = ?'; params.push(file_type); }
-  sql += ' ORDER BY created_at DESC';
+  if (file_type) { sql += ' AND type = ?'; params.push(file_type); } // Use 'type' column
+  sql += ' ORDER BY upload_date DESC'; // Use 'upload_date' column
   const rows = db.prepare(sql).all(...params);
-  res.json(rows);
+  
+  // Map database field names to frontend field names
+  const mappedRows = rows.map((report: any) => ({
+    ...report,
+    file_type: report.type, // map 'type' to 'file_type'
+    created_at: new Date(report.upload_date).toISOString(), // map 'upload_date' to 'created_at' as ISO string
+    upload_date: report.upload_date, // keep original for compatibility
+    source: 'upload', // default value since column doesn't exist
+    parsed: 0 // default value since column doesn't exist
+  }));
+  
+  res.json(mappedRows);
 });
 
 router.delete('/api/reports/:id', (req: Request, res: Response) => {
-  const userId = (req as any).userId;
+  const userId = (req as any).user?.id || (req as any).userId;
   const info = db.prepare('DELETE FROM reports WHERE id = ? AND user_id = ?').run(req.params.id, userId);
   if (info.changes === 0) return res.status(404).json({ error: 'not found' });
   res.status(204).end();
@@ -1304,23 +1349,33 @@ router.delete('/api/reports/:id', (req: Request, res: Response) => {
 
 // Get single report
 router.get('/api/reports/:id', (req: Request, res: Response) => {
-  const userId = (req as any).userId;
+  const userId = (req as any).user?.id || (req as any).userId;
   const row = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(req.params.id, userId);
   if (!row) return res.status(404).json({ error: 'not found' });
-  res.json(row);
+  
+  // Map database field names to frontend field names
+  const mappedReport = {
+    ...row,
+    file_type: (row as any).type, // map 'type' to 'file_type'
+    created_at: (row as any).upload_date, // map 'upload_date' to 'created_at'
+    source: 'upload', // default value since column doesn't exist
+    parsed: 0 // default value since column doesn't exist
+  };
+  
+  res.json(mappedReport);
 });
 
 // Update report (PATCH)
 const reportUpdateSchema = z.object({
   ai_summary: z.string().optional(),
-  parsed: z.number().int().min(0).max(1).optional(),
+  // Note: 'parsed' column doesn't exist in current database schema
 });
 
 router.patch('/api/reports/:id', (req: Request, res: Response) => {
   const parsed = reportUpdateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   
-  const userId = (req as any).userId;
+  const userId = (req as any).user?.id || (req as any).userId;
   const reportId = req.params.id;
   
   // Check if report exists and belongs to user
@@ -1336,10 +1391,7 @@ router.patch('/api/reports/:id', (req: Request, res: Response) => {
     updateValues.push(updates.ai_summary);
   }
   
-  if (updates.parsed !== undefined) {
-    updateFields.push('parsed = ?');
-    updateValues.push(updates.parsed);
-  }
+  // Note: 'parsed' column doesn't exist in current database schema
   
   if (updateFields.length === 0) {
     return res.status(400).json({ error: 'no valid fields to update' });
@@ -1362,7 +1414,7 @@ router.patch('/api/reports/:id', (req: Request, res: Response) => {
 
 // Parse report endpoint (placeholder for OCR/AI integration)
 router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
-  const userId = (req as any).userId;
+  const userId = (req as any).user?.id || (req as any).userId;
   const reportId = req.params.id;
   
   // Check if report exists and belongs to user
@@ -1387,8 +1439,7 @@ router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
     }
   ];
   
-  // Mark report as parsed
-  db.prepare('UPDATE reports SET parsed = 1 WHERE id = ? AND user_id = ?').run(reportId, userId);
+  // Note: Database doesn't have 'parsed' column, so we skip that update
   
   // In a real implementation, save the health data entries to the database
   for (const healthData of placeholderHealthData) {

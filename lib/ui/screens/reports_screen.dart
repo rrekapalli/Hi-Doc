@@ -1,9 +1,14 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as path_helper;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../providers/reports_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/report.dart';
@@ -188,11 +193,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
       );
       
       if (image != null) {
-        await _processSelectedFile(
-          File(image.path),
-          ReportSource.camera,
-          originalFileName: 'Camera_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.jpg',
-        );
+        if (kIsWeb) {
+          // On web, use bytes
+          final bytes = await image.readAsBytes();
+          final fileName = 'Camera_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.jpg';
+          await _processSelectedFileBytes(
+            bytes,
+            fileName,
+            ReportSource.camera,
+          );
+        } else {
+          // On mobile/desktop, use file path
+          await _processSelectedFile(
+            File(image.path),
+            ReportSource.camera,
+            originalFileName: 'Camera_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.jpg',
+          );
+        }
       }
     } catch (e) {
       _showErrorSnackBar('Failed to capture image: $e');
@@ -213,12 +230,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
       );
       
       if (image != null) {
-        final fileName = image.path.split('/').last;
-        await _processSelectedFile(
-          File(image.path),
-          ReportSource.upload,
-          originalFileName: fileName,
-        );
+        if (kIsWeb) {
+          // On web, use bytes
+          final bytes = await image.readAsBytes();
+          final fileName = image.name;
+          await _processSelectedFileBytes(
+            bytes,
+            fileName,
+            ReportSource.upload,
+          );
+        } else {
+          // On mobile/desktop, use file path
+          final fileName = image.path.split('/').last;
+          await _processSelectedFile(
+            File(image.path),
+            ReportSource.upload,
+            originalFileName: fileName,
+          );
+        }
       }
     } catch (e) {
       _showErrorSnackBar('Failed to select image: $e');
@@ -237,12 +266,32 @@ class _ReportsScreenState extends State<ReportsScreen> {
         allowMultiple: false,
       );
       
-      if (result != null && result.files.single.path != null) {
-        await _processSelectedFile(
-          File(result.files.single.path!),
-          ReportSource.upload,
-          originalFileName: result.files.single.name,
-        );
+      if (result != null) {
+        final platformFile = result.files.single;
+        
+        if (kIsWeb) {
+          // On web, use bytes instead of file path
+          if (platformFile.bytes != null) {
+            await _processSelectedFileBytes(
+              platformFile.bytes!,
+              platformFile.name,
+              ReportSource.upload,
+            );
+          } else {
+            _showErrorSnackBar('Failed to read file data');
+          }
+        } else {
+          // On mobile/desktop, use file path
+          if (platformFile.path != null) {
+            await _processSelectedFile(
+              File(platformFile.path!),
+              ReportSource.upload,
+              originalFileName: platformFile.name,
+            );
+          } else {
+            _showErrorSnackBar('Failed to access file path');
+          }
+        }
       }
     } catch (e) {
       _showErrorSnackBar('Failed to upload PDF: $e');
@@ -272,6 +321,50 @@ class _ReportsScreenState extends State<ReportsScreen> {
         filePath: savedPath,
         source: source,
         originalFileName: originalFileName,
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Report added successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      _showErrorSnackBar('Failed to process file: $e');
+    }
+  }
+
+  Future<void> _processSelectedFileBytes(
+    Uint8List bytes,
+    String fileName,
+    ReportSource source,
+  ) async {
+    try {
+      final reportsProvider = context.read<ReportsProvider>();
+      
+      // For web, store file data in local storage for later access
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final extension = path_helper.extension(fileName).toLowerCase();
+      final fileKey = 'report_file_${timestamp}$extension'; // Include extension for proper type detection
+      final base64Data = base64Encode(bytes);
+      
+      // Store file data in SharedPreferences (browser localStorage)
+      if (kIsWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(fileKey, base64Data);
+      }
+      
+      final mockFilePath = fileKey; // Use the storage key as the file path
+      
+      // Create report record
+      const userId = 'prototype-user-12345';
+      await reportsProvider.addReport(
+        userId: userId,
+        filePath: mockFilePath,
+        source: source,
+        originalFileName: fileName,
       );
       
       if (mounted) {

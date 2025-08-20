@@ -8,9 +8,20 @@ import 'package:uuid/uuid.dart';
 import '../models/report.dart';
 import '../models/health_data_entry.dart';
 import '../config/app_config.dart';
+import 'auth_service.dart';
 
 class ReportsService {
   static const uuid = Uuid();
+
+  /// Get authentication headers for API requests
+  Future<Map<String, String>> _getAuthHeaders() async {
+    final authService = AuthService();
+    final token = await authService.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token'
+    };
+  }
 
   /// Get the app's documents directory for storing report files
   Future<Directory> _getReportsDirectory() async {
@@ -53,35 +64,13 @@ class ReportsService {
     }
   }
 
-  /// Create a new report record
-  Future<Report> createReport({
-    required String userId,
-    required String filePath,
-    required ReportSource source,
-    String? conversationId,
-    String? aiSummary,
-    String? originalFileName,
-  }) async {
+  /// Create a new report on the backend
+  Future<Report> createReport(Report report) async {
     try {
-      final report = Report(
-        id: uuid.v4(),
-        userId: userId,
-        conversationId: conversationId,
-        filePath: filePath,
-        fileType: _getFileType(filePath),
-        source: source,
-        aiSummary: aiSummary,
-        createdAt: DateTime.now(),
-        parsed: false,
-        originalFileName: originalFileName,
-      );
-
-      // Save to backend
+      final headers = await _getAuthHeaders();
       final response = await http.post(
         Uri.parse('${AppConfig.backendBaseUrl}/api/reports'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
         body: jsonEncode({
           'id': report.id,
           'user_id': report.userId,
@@ -110,11 +99,10 @@ class ReportsService {
   /// Get all reports for a user
   Future<List<Report>> getUserReports(String userId) async {
     try {
+      final headers = await _getAuthHeaders();
       final response = await http.get(
         Uri.parse('${AppConfig.backendBaseUrl}/api/reports'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -132,11 +120,10 @@ class ReportsService {
   /// Get a specific report by ID
   Future<Report?> getReport(String reportId) async {
     try {
+      final headers = await _getAuthHeaders();
       final response = await http.get(
         Uri.parse('${AppConfig.backendBaseUrl}/api/reports/$reportId'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -156,11 +143,10 @@ class ReportsService {
   /// Delete a report
   Future<bool> deleteReport(String reportId) async {
     try {
+      final headers = await _getAuthHeaders();
       final response = await http.delete(
         Uri.parse('${AppConfig.backendBaseUrl}/api/reports/$reportId'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
       );
 
       if (response.statusCode == 204 || response.statusCode == 200) {
@@ -189,11 +175,10 @@ class ReportsService {
   /// Parse a report using OCR and AI
   Future<List<HealthDataEntry>> parseReport(String reportId) async {
     try {
+      final headers = await _getAuthHeaders();
       final response = await http.post(
         Uri.parse('${AppConfig.backendBaseUrl}/api/reports/$reportId/parse'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -212,11 +197,10 @@ class ReportsService {
   /// Update report's AI summary
   Future<bool> updateAiSummary(String reportId, String aiSummary) async {
     try {
+      final headers = await _getAuthHeaders();
       final response = await http.patch(
         Uri.parse('${AppConfig.backendBaseUrl}/api/reports/$reportId'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
         body: jsonEncode({
           'ai_summary': aiSummary,
         }),
@@ -232,11 +216,10 @@ class ReportsService {
   /// Mark report as parsed
   Future<bool> markAsParsed(String reportId) async {
     try {
+      final headers = await _getAuthHeaders();
       final response = await http.patch(
         Uri.parse('${AppConfig.backendBaseUrl}/api/reports/$reportId'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
         body: jsonEncode({
           'parsed': 1,
         }),

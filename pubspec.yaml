@@ -35,6 +35,7 @@ dependencies:
   permission_handler: ^11.3.1 # For requesting contacts permission
   image_picker: ^1.1.2 # For camera and gallery access
   flutter_pdfview: ^1.3.2 # For PDF viewing
+  pdfx: ^2.6.0 # Cross-platform PDF viewer that works on web
 
   # Optional (choose one chart lib); syncfusion requires license key for prod
   # syncfusion_flutter_charts: ^26.1.41

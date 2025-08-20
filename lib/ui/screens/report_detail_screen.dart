@@ -1,8 +1,13 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_pdfview/flutter_pdfview.dart';
+import 'package:pdfx/pdfx.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/report.dart';
 import '../../models/health_data_entry.dart';
 import '../../providers/reports_provider.dart';
@@ -329,6 +334,71 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
   }
 
   Widget _buildPdfViewer() {
+    if (kIsWeb) {
+      return FutureBuilder<Uint8List?>(
+        future: _loadWebFileData(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    size: 64,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error loading PDF',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${snapshot.error}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            );
+          } else if (snapshot.hasData && snapshot.data != null) {
+            return PdfViewPinch(
+              controller: PdfControllerPinch(
+                document: PdfDocument.openData(snapshot.data!),
+              ),
+            );
+          } else {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.picture_as_pdf,
+                    size: 64,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'PDF Not Available',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'PDF data could not be loaded',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            );
+          }
+        },
+      );
+    }
+    
     final file = File(widget.report.filePath);
     
     if (!file.existsSync()) {
@@ -377,6 +447,135 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
   }
 
   Widget _buildImageViewer() {
+    if (kIsWeb) {
+      return FutureBuilder<Uint8List?>(
+        future: _loadWebFileData(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    size: 64,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error loading image',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${snapshot.error}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            );
+          } else if (snapshot.hasData && snapshot.data != null) {
+            try {
+              return InteractiveViewer(
+                panEnabled: true,
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Center(
+                  child: Image.memory(
+                    snapshot.data!,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.broken_image,
+                            size: 64,
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Cannot display as image',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'This file may be a PDF or unsupported format',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton.icon(
+                            onPressed: () {
+                              // Try to refresh and detect the proper file type
+                              Navigator.of(context).pop();
+                            },
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Go back and check file type'),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              );
+            } catch (e) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 64,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Error loading image',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '$e',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              );
+            }
+          } else {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.image,
+                    size: 64,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Image Not Available',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Image data could not be loaded',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            );
+          }
+        },
+      );
+    }
+    
     final file = File(widget.report.filePath);
     
     if (!file.existsSync()) {
@@ -555,5 +754,23 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
       default:
         return Icons.health_and_safety;
     }
+  }
+
+  /// Load file data from web storage for web platform
+  Future<Uint8List?> _loadWebFileData() async {
+    if (!kIsWeb) return null;
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final base64Data = prefs.getString(widget.report.filePath);
+      
+      if (base64Data != null) {
+        return base64Decode(base64Data);
+      }
+    } catch (e) {
+      debugPrint('Error loading web file data: $e');
+    }
+    
+    return null;
   }
 }

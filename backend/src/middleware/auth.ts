@@ -24,13 +24,13 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     return next();
   }
 
-  // Check if we're in dev mode and using prototype user
-  if (process.env.NODE_ENV !== 'production' && req.path.startsWith('/api/admin/')) {
-    req.user = { id: 'prototype-user-12345' };
+  // Check if we're in dev mode - allow prototype user for all API routes
+  if (process.env.NODE_ENV !== 'production') {
+    req.user = { id: 'prototype-user-12345', name: 'Prototype User', email: 'prototype@example.com' };
     return next();
   }
 
-  // Require auth for all other routes
+  // Require auth for all other routes in production
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'No token provided' });
   }

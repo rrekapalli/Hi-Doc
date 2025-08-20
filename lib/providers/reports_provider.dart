@@ -1,9 +1,12 @@
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
+import 'package:path/path.dart' as path;
 import '../models/report.dart';
 import '../services/reports_service.dart';
 
 class ReportsProvider with ChangeNotifier {
   final ReportsService _reportsService = ReportsService();
+  static const _uuid = Uuid();
   
   List<Report> _reports = [];
   bool _isLoading = false;
@@ -41,18 +44,29 @@ class ReportsProvider with ChangeNotifier {
     _error = null;
     
     try {
-      final report = await _reportsService.createReport(
+      // Determine file type from file path
+      final fileType = _getFileTypeFromPath(filePath);
+      
+      // Create Report object
+      final report = Report(
+        id: _generateId(),
         userId: userId,
-        filePath: filePath,
-        source: source,
         conversationId: conversationId,
+        filePath: filePath,
+        fileType: fileType,
+        source: source,
         aiSummary: aiSummary,
+        createdAt: DateTime.now(),
+        parsed: false,
         originalFileName: originalFileName,
       );
       
-      _reports.insert(0, report); // Add to beginning of list
+      // Create report on backend
+      final createdReport = await _reportsService.createReport(report);
+      
+      _reports.insert(0, createdReport); // Add to beginning of list
       notifyListeners();
-      return report;
+      return createdReport;
     } catch (e) {
       _error = 'Failed to add report: $e';
       debugPrint(_error);
@@ -174,5 +188,28 @@ class ReportsProvider with ChangeNotifier {
   void _setLoading(bool loading) {
     _isLoading = loading;
     notifyListeners();
+  }
+  
+  /// Generate a unique ID for a new report
+  String _generateId() {
+    return _uuid.v4();
+  }
+  
+  /// Determine file type from file path extension
+  ReportFileType _getFileTypeFromPath(String filePath) {
+    final extension = path.extension(filePath).toLowerCase();
+    switch (extension) {
+      case '.pdf':
+        return ReportFileType.pdf;
+      case '.jpg':
+      case '.jpeg':
+      case '.png':
+      case '.gif':
+      case '.bmp':
+      case '.webp':
+        return ReportFileType.image;
+      default:
+        return ReportFileType.unknown;
+    }
   }
 }
