@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -19,6 +20,15 @@ class ReportsService {
     final token = await authService.getIdToken();
     return {
       'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token'
+    };
+  }
+
+  /// Get authentication headers for multipart uploads
+  Future<Map<String, String>> _getUploadHeaders() async {
+    final authService = AuthService();
+    final token = await authService.getIdToken();
+    return {
       'Authorization': 'Bearer $token'
     };
   }
@@ -44,6 +54,30 @@ class ReportsService {
     final targetFile = await sourceFile.copy(targetPath);
     
     return targetFile.path;
+  }
+
+  /// Fetch file data from the backend for display
+  Future<Uint8List?> getReportFileData(String filePath) async {
+    try {
+      // Extract filename from full path
+      final fileName = path.basename(filePath);
+      final headers = await _getUploadHeaders();
+      
+      final response = await http.get(
+        Uri.parse('${AppConfig.backendBaseUrl}/api/reports/files/$fileName'),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        return response.bodyBytes;
+      } else {
+        debugPrint('Failed to fetch file. Status: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error fetching file: $e');
+      return null;
+    }
   }
 
   /// Determine file type from extension
@@ -88,10 +122,107 @@ class ReportsService {
         debugPrint('Report created successfully: ${report.id}');
         return report;
       } else {
+        debugPrint('Failed to create report. Status: ${response.statusCode}, Body: ${response.body}');
         throw Exception('Failed to create report: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Error creating report: $e');
+      debugPrint('Backend URL: ${AppConfig.backendBaseUrl}/api/reports');
+      rethrow;
+    }
+  }
+
+  /// Upload a file directly to the backend and create a report
+  Future<Report> uploadReportFile({
+    required File file,
+    required String userId,
+    required ReportSource source,
+    String? conversationId,
+    String? aiSummary,
+  }) async {
+    try {
+      final headers = await _getUploadHeaders();
+      final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/reports/upload');
+      
+      final request = http.MultipartRequest('POST', uri);
+      request.headers.addAll(headers);
+      
+      // Add file
+      request.files.add(await http.MultipartFile.fromPath(
+        'file',
+        file.path,
+        filename: path.basename(file.path),
+      ));
+      
+      // Add additional fields
+      request.fields['source'] = source.name;
+      request.fields['conversation_id'] = conversationId ?? 'default-conversation';
+      if (aiSummary != null) {
+        request.fields['ai_summary'] = aiSummary;
+      }
+      
+      final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
+      
+      if (response.statusCode == 201) {
+        final json = jsonDecode(responseBody);
+        debugPrint('File uploaded successfully: ${json['id']}');
+        return _reportFromBackendJson(json);
+      } else {
+        debugPrint('Failed to upload file. Status: ${response.statusCode}, Body: $responseBody');
+        throw Exception('Failed to upload file: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error uploading file: $e');
+      debugPrint('Backend URL: ${AppConfig.backendBaseUrl}/api/reports/upload');
+      rethrow;
+    }
+  }
+
+  /// Upload file bytes directly to the backend (for web)
+  Future<Report> uploadReportBytes({
+    required Uint8List bytes,
+    required String fileName,
+    required String userId,
+    required ReportSource source,
+    String? conversationId,
+    String? aiSummary,
+  }) async {
+    try {
+      final headers = await _getUploadHeaders();
+      final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/reports/upload');
+      
+      final request = http.MultipartRequest('POST', uri);
+      request.headers.addAll(headers);
+      
+      // Add file bytes
+      request.files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: fileName,
+      ));
+      
+      // Add additional fields
+      request.fields['source'] = source.name;
+      request.fields['conversation_id'] = conversationId ?? 'default-conversation';
+      if (aiSummary != null) {
+        request.fields['ai_summary'] = aiSummary;
+      }
+      
+      final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
+      
+      if (response.statusCode == 201) {
+        final json = jsonDecode(responseBody);
+        debugPrint('File uploaded successfully: ${json['id']}');
+        return _reportFromBackendJson(json);
+      } else {
+        debugPrint('Failed to upload file. Status: ${response.statusCode}, Body: $responseBody');
+        throw Exception('Failed to upload file: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error uploading file: $e');
+      debugPrint('Backend URL: ${AppConfig.backendBaseUrl}/api/reports/upload');
       rethrow;
     }
   }
@@ -109,11 +240,13 @@ class ReportsService {
         final List<dynamic> reportsJson = jsonDecode(response.body);
         return reportsJson.map((json) => _reportFromBackendJson(json)).toList();
       } else {
+        debugPrint('Failed to fetch reports. Status: ${response.statusCode}, Body: ${response.body}');
         throw Exception('Failed to fetch reports: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Error fetching reports: $e');
-      return [];
+      debugPrint('Backend URL: ${AppConfig.backendBaseUrl}/api/reports');
+      rethrow; // Re-throw the error so provider can handle it
     }
   }
 
@@ -242,13 +375,36 @@ class ReportsService {
       fileType: _parseFileType(json['file_type']),
       source: _parseSource(json['source']),
       aiSummary: json['ai_summary'],
-      createdAt: DateTime.fromMillisecondsSinceEpoch(
-        json['created_at'] is String 
-          ? int.parse(json['created_at'])
-          : json['created_at'] ?? DateTime.now().millisecondsSinceEpoch
-      ),
+      createdAt: _parseDateTime(json['created_at']),
       parsed: json['parsed'] == 1 || json['parsed'] == true,
+      originalFileName: json['original_file_name'] ?? json['original_name'],
     );
+  }
+
+  DateTime _parseDateTime(dynamic dateValue) {
+    if (dateValue == null) {
+      return DateTime.now();
+    }
+    
+    if (dateValue is String) {
+      // Try parsing as ISO string first
+      try {
+        return DateTime.parse(dateValue);
+      } catch (e) {
+        // If ISO parsing fails, try parsing as timestamp string
+        try {
+          return DateTime.fromMillisecondsSinceEpoch(int.parse(dateValue));
+        } catch (e) {
+          debugPrint('Failed to parse date string: $dateValue');
+          return DateTime.now();
+        }
+      }
+    } else if (dateValue is int) {
+      return DateTime.fromMillisecondsSinceEpoch(dateValue);
+    } else {
+      debugPrint('Unknown date format: $dateValue (${dateValue.runtimeType})');
+      return DateTime.now();
+    }
   }
 
   ReportFileType _parseFileType(String? type) {

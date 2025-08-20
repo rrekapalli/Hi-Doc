@@ -311,28 +311,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
     try {
       final reportsProvider = context.read<ReportsProvider>();
       
-      // Save file to app directory
-      final savedPath = await _reportsService.saveReportFile(
-        file,
-        fileName: originalFileName,
-      );
-      
-      // Create report record
+      // Upload file directly to backend instead of saving locally
       const userId = 'prototype-user-12345';
-      await reportsProvider.addReport(
+      final report = await reportsProvider.addReportByUpload(
+        file: file,
         userId: userId,
-        filePath: savedPath,
         source: source,
-        originalFileName: originalFileName,
+        conversationId: 'default-conversation',
       );
       
-      if (mounted) {
+      if (mounted && report != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Report added successfully'),
+            content: Text('Report uploaded successfully'),
             backgroundColor: Colors.green,
           ),
         );
+      } else if (mounted) {
+        _showErrorSnackBar('Failed to upload report');
       }
     } catch (e) {
       _showErrorSnackBar('Failed to process file: $e');
@@ -347,36 +343,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
     try {
       final reportsProvider = context.read<ReportsProvider>();
       
-      // For web, store file data in local storage for later access
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final extension = path_helper.extension(fileName).toLowerCase();
-      final fileKey = 'report_file_${timestamp}$extension'; // Include extension for proper type detection
-      final base64Data = base64Encode(bytes);
-      
-      // Store file data in SharedPreferences (browser localStorage)
-      if (kIsWeb) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(fileKey, base64Data);
-      }
-      
-      final mockFilePath = fileKey; // Use the storage key as the file path
-      
-      // Create report record
+      // Upload file bytes directly to backend instead of storing locally
       const userId = 'prototype-user-12345';
-      await reportsProvider.addReport(
+      final report = await reportsProvider.addReportByUploadBytes(
+        bytes: bytes,
+        fileName: fileName,
         userId: userId,
-        filePath: mockFilePath,
         source: source,
-        originalFileName: fileName,
+        conversationId: 'default-conversation',
       );
       
-      if (mounted) {
+      if (mounted && report != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Report added successfully'),
+            content: Text('Report uploaded successfully'),
             backgroundColor: Colors.green,
           ),
         );
+      } else if (mounted) {
+        _showErrorSnackBar('Failed to upload report');
       }
     } catch (e) {
       _showErrorSnackBar('Failed to process file: $e');

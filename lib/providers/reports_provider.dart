@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:path/path.dart' as path;
@@ -75,6 +77,74 @@ class ReportsProvider with ChangeNotifier {
       return createdReport;
     } catch (e) {
       _error = 'Failed to add report: $e';
+      if (kDebugMode) {
+        debugPrint(_error);
+      }
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// Add a new report by uploading a file directly to the backend
+  Future<Report?> addReportByUpload({
+    required File file,
+    required String userId,
+    required ReportSource source,
+    String? conversationId,
+    String? aiSummary,
+  }) async {
+    _error = null;
+    
+    try {
+      // Upload file directly to backend
+      final createdReport = await _reportsService.uploadReportFile(
+        file: file,
+        userId: userId,
+        source: source,
+        conversationId: conversationId,
+        aiSummary: aiSummary,
+      );
+      
+      _reports.insert(0, createdReport); // Add to beginning of list
+      notifyListeners();
+      return createdReport;
+    } catch (e) {
+      _error = 'Failed to upload report: $e';
+      if (kDebugMode) {
+        debugPrint(_error);
+      }
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// Add a new report by uploading file bytes directly to the backend (for web)
+  Future<Report?> addReportByUploadBytes({
+    required Uint8List bytes,
+    required String fileName,
+    required String userId,
+    required ReportSource source,
+    String? conversationId,
+    String? aiSummary,
+  }) async {
+    _error = null;
+    
+    try {
+      // Upload file bytes directly to backend
+      final createdReport = await _reportsService.uploadReportBytes(
+        bytes: bytes,
+        fileName: fileName,
+        userId: userId,
+        source: source,
+        conversationId: conversationId,
+        aiSummary: aiSummary,
+      );
+      
+      _reports.insert(0, createdReport); // Add to beginning of list
+      notifyListeners();
+      return createdReport;
+    } catch (e) {
+      _error = 'Failed to upload report: $e';
       if (kDebugMode) {
         debugPrint(_error);
       }

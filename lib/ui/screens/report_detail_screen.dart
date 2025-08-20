@@ -1,13 +1,8 @@
-import 'dart:io';
-import 'dart:typed_data';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter_pdfview/flutter_pdfview.dart';
 import 'package:pdfx/pdfx.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/report.dart';
 import '../../models/health_data_entry.dart';
 import '../../providers/reports_provider.dart';
@@ -336,7 +331,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
   Widget _buildPdfViewer() {
     if (kIsWeb) {
       return FutureBuilder<Uint8List?>(
-        future: _loadWebFileData(),
+        future: _loadFileData(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -399,49 +394,67 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
       );
     }
     
-    final file = File(widget.report.filePath);
-    
-    if (!file.existsSync()) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Theme.of(context).colorScheme.error,
+  // For non-web, also load from backend since files are stored there
+  return FutureBuilder<Uint8List?>(
+      future: _loadFileData(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Error loading PDF',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'PDF data could not be loaded',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              'File not found',
-              style: Theme.of(context).textTheme.headlineSmall,
+          );
+        } else if (snapshot.hasData && snapshot.data != null) {
+          return PdfViewPinch(
+            controller: PdfControllerPinch(
+              document: PdfDocument.openData(snapshot.data!),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'The report file could not be located',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-              ),
+          );
+        } else {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.picture_as_pdf,
+                  size: 64,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'PDF Not Available',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'PDF data could not be loaded',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
-          ],
-        ),
-      );
-    }
-
-    return PDFView(
-      filePath: file.path,
-      enableSwipe: true,
-      swipeHorizontal: false,
-      autoSpacing: false,
-      pageFling: true,
-      onRender: (_pages) {
-        debugPrint('PDF rendered with $_pages pages');
-      },
-      onError: (error) {
-        debugPrint('PDF viewing error: $error');
-      },
-      onPageError: (page, error) {
-        debugPrint('PDF page $page error: $error');
+          );
+        }
       },
     );
   }
@@ -449,7 +462,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
   Widget _buildImageViewer() {
     if (kIsWeb) {
       return FutureBuilder<Uint8List?>(
-        future: _loadWebFileData(),
+        future: _loadFileData(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -576,69 +589,98 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
       );
     }
     
-    final file = File(widget.report.filePath);
-    
-    if (!file.existsSync()) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'File not found',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'The report image could not be located',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return InteractiveViewer(
-      panEnabled: true,
-      minScale: 0.5,
-      maxScale: 4.0,
-      child: Center(
-        child: Image.file(
-          file,
-          fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) {
-            return Column(
+    // For non-web, also load from backend since files are stored there
+    return FutureBuilder<Uint8List?>(
+      future: _loadFileData(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError) {
+          return Center(
+            child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
-                  Icons.broken_image,
+                  Icons.error_outline,
                   size: 64,
                   color: Theme.of(context).colorScheme.error,
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Cannot display image',
+                  'Error loading image',
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Error: $error',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                  ),
+                  'Image data could not be loaded',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
                 ),
               ],
-            );
-          },
-        ),
-      ),
+            ),
+          );
+        } else if (snapshot.hasData && snapshot.data != null) {
+          return InteractiveViewer(
+            panEnabled: true,
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: Center(
+              child: Image.memory(
+                snapshot.data!,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.broken_image,
+                        size: 64,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Cannot display image',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Error: $error',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          );
+        } else {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.image,
+                  size: 64,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Image Not Available',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Image data could not be loaded',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        }
+      },
     );
   }
 
@@ -757,20 +799,14 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
   }
 
   /// Load file data from web storage for web platform
-  Future<Uint8List?> _loadWebFileData() async {
-    if (!kIsWeb) return null;
-    
+  Future<Uint8List?> _loadFileData() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final base64Data = prefs.getString(widget.report.filePath);
-      
-      if (base64Data != null) {
-        return base64Decode(base64Data);
-      }
+      // Always fetch from backend now since files are stored there
+      final fileData = await _reportsService.getReportFileData(widget.report.filePath);
+      return fileData;
     } catch (e) {
-      debugPrint('Error loading web file data: $e');
+      debugPrint('Error loading file data: $e');
+      return null;
     }
-    
-    return null;
   }
 }

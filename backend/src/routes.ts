@@ -4,6 +4,14 @@ import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { signToken, verifyToken } from './jwtUtil.js';
 import { interpretMessage, aiProviderStatus, AiInterpretation, getHealthDataEntryPrompt, getHealthDataTrendPrompt, clearPromptCache } from './ai.js';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+// Fix __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Extend Express Request to include user
 interface Request extends ExpressRequest {
@@ -15,6 +23,45 @@ interface Request extends ExpressRequest {
 }
 import { logger } from './logger.js';
 import { verifyMicrosoftIdToken } from './msAuth.js';
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '../../reports');
+    // Ensure the directory exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Generate unique filename with original extension
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    // Accept images, PDFs, and documents
+    const allowedExtensions = /\.(jpeg|jpg|png|pdf|doc|docx|txt|md)$/i;
+    const allowedMimeTypes = /^(image\/.*|application\/pdf|text\/.*|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|application\/octet-stream)$/;
+    
+    const extname = allowedExtensions.test(file.originalname);
+    const mimetype = allowedMimeTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error(`File type not allowed: ${file.originalname} (${file.mimetype})`));
+    }
+  }
+});
 interface DbMessage {
   id: string;
   conversation_id: string;
@@ -1299,9 +1346,9 @@ router.post('/api/reports', (req: Request, res: Response) => {
   
   try {
     db.prepare(`INSERT INTO reports 
-      (id, user_id, conversation_id, file_path, type, ai_summary, upload_date) 
-      VALUES (?,?,?,?,?,?,?)`)
-      .run(reportId, userId, conversationId, file_path, fileType, ai_summary || null, timestamp);
+      (id, user_id, conversation_id, file_path, file_type, source, ai_summary, created_at, parsed) 
+      VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run(reportId, userId, conversationId, file_path, fileType, source, ai_summary || null, timestamp, 0);
     
     res.status(201).json({ 
       id: reportId, 
@@ -1327,18 +1374,15 @@ router.get('/api/reports', (req: Request, res: Response) => {
   const file_type = req.query.file_type as string | undefined;
   let sql = 'SELECT * FROM reports WHERE user_id = ?';
   const params: any[] = [userId];
-  if (file_type) { sql += ' AND type = ?'; params.push(file_type); } // Use 'type' column
-  sql += ' ORDER BY upload_date DESC'; // Use 'upload_date' column
+  if (file_type) { sql += ' AND file_type = ?'; params.push(file_type); }
+  sql += ' ORDER BY created_at DESC';
   const rows = db.prepare(sql).all(...params);
   
-  // Map database field names to frontend field names
+  // Map database field names to frontend field names for compatibility
   const mappedRows = rows.map((report: any) => ({
     ...report,
-    file_type: report.type, // map 'type' to 'file_type'
-    created_at: new Date(report.upload_date).toISOString(), // map 'upload_date' to 'created_at' as ISO string
-    upload_date: report.upload_date, // keep original for compatibility
-    source: 'upload', // default value since column doesn't exist
-    parsed: 0 // default value since column doesn't exist
+    created_at: new Date(report.created_at).toISOString(), // convert timestamp to ISO string
+    upload_date: report.created_at, // keep original timestamp for compatibility
   }));
   
   res.json(mappedRows);
@@ -1357,13 +1401,11 @@ router.get('/api/reports/:id', (req: Request, res: Response) => {
   const row = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(req.params.id, userId);
   if (!row) return res.status(404).json({ error: 'not found' });
   
-  // Map database field names to frontend field names
+  // Map database field names to frontend field names for compatibility
   const mappedReport = {
     ...row,
-    file_type: (row as any).type, // map 'type' to 'file_type'
-    created_at: (row as any).upload_date, // map 'upload_date' to 'created_at'
-    source: 'upload', // default value since column doesn't exist
-    parsed: 0 // default value since column doesn't exist
+    created_at: new Date((row as any).created_at).toISOString(), // convert timestamp to ISO string
+    upload_date: (row as any).created_at, // keep original timestamp for compatibility
   };
   
   res.json(mappedReport);
@@ -1372,7 +1414,7 @@ router.get('/api/reports/:id', (req: Request, res: Response) => {
 // Update report (PATCH)
 const reportUpdateSchema = z.object({
   ai_summary: z.string().optional(),
-  // Note: 'parsed' column doesn't exist in current database schema
+  parsed: z.number().or(z.boolean()).optional(), // parsed column now exists
 });
 
 router.patch('/api/reports/:id', (req: Request, res: Response) => {
@@ -1395,7 +1437,10 @@ router.patch('/api/reports/:id', (req: Request, res: Response) => {
     updateValues.push(updates.ai_summary);
   }
   
-  // Note: 'parsed' column doesn't exist in current database schema
+  if (updates.parsed !== undefined) {
+    updateFields.push('parsed = ?');
+    updateValues.push(typeof updates.parsed === 'boolean' ? (updates.parsed ? 1 : 0) : updates.parsed);
+  }
   
   if (updateFields.length === 0) {
     return res.status(400).json({ error: 'no valid fields to update' });
@@ -1472,6 +1517,78 @@ router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
     health_data: placeholderHealthData,
     message: 'Report parsed successfully'
   });
+});
+
+// File upload endpoint for reports
+router.post('/api/reports/upload', upload.single('file'), (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const userId = (req as any).user?.id || (req as any).userId;
+    const reportId = randomUUID();
+    const { conversation_id, source, ai_summary } = req.body;
+    
+    // Get file information
+    const filePath = req.file.path;
+    const fileType = req.file.mimetype;
+    const originalName = req.file.originalname;
+    const timestamp = Date.now();
+    
+    // conversation_id is required by database, use default if not provided
+    const conversationId = conversation_id || 'default-conversation';
+    
+    // Insert report record into database
+    db.prepare(`INSERT INTO reports 
+      (id, user_id, conversation_id, file_path, file_type, source, ai_summary, created_at, parsed, original_file_name) 
+      VALUES (?,?,?,?,?,?,?,?,?,?)`)
+      .run(reportId, userId, conversationId, filePath, fileType, source || 'upload', ai_summary || null, timestamp, 0, originalName);
+    
+    logger.info('File uploaded successfully', { 
+      reportId, 
+      userId, 
+      originalName, 
+      fileType, 
+      filePath 
+    });
+    
+    res.status(201).json({ 
+      id: reportId, 
+      user_id: userId,
+      conversation_id: conversationId,
+      file_path: filePath,
+      file_type: fileType,
+      original_name: originalName,
+      source: source || 'upload',
+      ai_summary: ai_summary || null,
+      created_at: new Date(timestamp).toISOString(),
+      parsed: 0,
+      message: 'File uploaded successfully'
+    });
+  } catch (error) {
+    logger.error('File upload error', { error });
+    res.status(500).json({ error: 'Failed to upload file' });
+  }
+});
+
+// Serve uploaded files
+router.get('/api/reports/files/:filename', (req: Request, res: Response) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(__dirname, '../../reports', filename);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    // Serve the file
+    res.sendFile(filePath);
+  } catch (error) {
+    logger.error('File serve error', { error });
+    res.status(500).json({ error: 'Failed to serve file' });
+  }
 });
 
 // Reminders CRUD
