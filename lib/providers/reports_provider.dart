@@ -18,15 +18,21 @@ class ReportsProvider with ChangeNotifier {
 
   /// Load reports for the current user
   Future<void> loadReports(String userId) async {
+    if (_isLoading) return; // Prevent multiple simultaneous loads
+    
     _setLoading(true);
     _error = null;
     
     try {
       _reports = await _reportsService.getUserReports(userId);
-      debugPrint('Loaded ${_reports.length} reports for user $userId');
+      if (kDebugMode) {
+        debugPrint('Loaded ${_reports.length} reports for user $userId');
+      }
     } catch (e) {
       _error = 'Failed to load reports: $e';
-      debugPrint(_error);
+      if (kDebugMode) {
+        debugPrint(_error);
+      }
     } finally {
       _setLoading(false);
     }
@@ -69,7 +75,9 @@ class ReportsProvider with ChangeNotifier {
       return createdReport;
     } catch (e) {
       _error = 'Failed to add report: $e';
-      debugPrint(_error);
+      if (kDebugMode) {
+        debugPrint(_error);
+      }
       notifyListeners();
       return null;
     }
@@ -92,7 +100,9 @@ class ReportsProvider with ChangeNotifier {
       }
     } catch (e) {
       _error = 'Failed to delete report: $e';
-      debugPrint(_error);
+      if (kDebugMode) {
+        debugPrint(_error);
+      }
       notifyListeners();
       return false;
     }

@@ -234,13 +234,17 @@ class DatabaseService {
 
   Future<void> init() async {
     if (_initialized) {
-      debugPrint('Database already initialized');
+      if (kDebugMode) {
+        debugPrint('Database already initialized');
+      }
       return;
     }
 
     try {
       if (kIsWeb) {
-        debugPrint('SQLite not supported on web, using in-memory fallback storage');
+        if (kDebugMode) {
+          debugPrint('SQLite not supported on web, using in-memory fallback storage');
+        }
         _inMemory = true;
         _initialized = true;
         return;
@@ -248,7 +252,9 @@ class DatabaseService {
       
       final appDir = await getApplicationDocumentsDirectory();
       final path = p.join(appDir.path, _dbName);
-      debugPrint('Initializing database at path: $path');
+      if (kDebugMode) {
+        debugPrint('Initializing database at path: $path');
+      }
       
       _db = await openDatabase(
         path,
@@ -260,14 +266,20 @@ class DatabaseService {
           await _onUpgrade(db, oldVersion, newVersion);
         },
         onOpen: (db) {
-          debugPrint('Database opened successfully');
+          if (kDebugMode) {
+            debugPrint('Database opened successfully');
+          }
         },
       );
       
       _initialized = true;
-      debugPrint('Database initialized successfully');
+      if (kDebugMode) {
+        debugPrint('Database initialized successfully');
+      }
     } catch (e) {
-      debugPrint('Failed to initialize database: $e');
+      if (kDebugMode) {
+        debugPrint('Failed to initialize database: $e');
+      }
       rethrow;
     }
   }

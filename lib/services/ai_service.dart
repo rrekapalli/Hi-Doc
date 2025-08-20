@@ -44,8 +44,9 @@ class AiService {
 
     // Quick probe if we think it's offline
     if (!await _probeBackend(base)) {
-      // ignore: avoid_print
-      print('AIService: backend offline (probe failed)');
+      if (kDebugMode) {
+        debugPrint('AIService: backend offline (probe failed)');
+      }
       return null;
     }
 
@@ -59,19 +60,22 @@ class AiService {
       resp = await http.post(interpretUri, headers: headers, body: jsonEncode({'message': message})).timeout(const Duration(seconds: 8));
     } on TimeoutException catch (_) {
       _lastBackendFailure = DateTime.now();
-      // ignore: avoid_print
-      print('AIService interpret timeout');
+      if (kDebugMode) {
+        debugPrint('AIService interpret timeout');
+      }
       return null;
     } catch (e) {
       _lastBackendFailure = DateTime.now();
-      // ignore: avoid_print
-      print('AIService interpret error: $e');
+      if (kDebugMode) {
+        debugPrint('AIService interpret error: $e');
+      }
       return null;
     }
 
     if (resp.statusCode != 200) {
-      // ignore: avoid_print
-      print('AIService interpret non-200: ${resp.statusCode} ${resp.body}');
+      if (kDebugMode) {
+        debugPrint('AIService interpret non-200: ${resp.statusCode} ${resp.body}');
+      }
       return null;
     }
     try {
@@ -80,14 +84,16 @@ class AiService {
       HealthEntry? entry;
       if (parsed != null) {
         try { entry = HealthEntry.fromJson(parsed); } catch (e) {
-          // ignore: avoid_print
-          print('AIService entry decode failed: $e');
+          if (kDebugMode) {
+            debugPrint('AIService entry decode failed: $e');
+          }
         }
       }
       return AiInterpretResult(reply: jsonMap['reply'] as String?, entry: entry, reasoning: jsonMap['reasoning'] as String?, matches: (jsonMap['matches'] as List?)?.cast<Map<String,dynamic>>());
     } catch (e) {
-      // ignore: avoid_print
-      print('AIService parse response error: $e');
+      if (kDebugMode) {
+        debugPrint('AIService parse response error: $e');
+      }
       return null;
     }
   }
@@ -114,12 +120,16 @@ class AiService {
       resp = await http.post(storeUri, headers: headers, body: jsonEncode({'message': message})).timeout(const Duration(seconds: 10));
       
       if (resp.statusCode != 200 && resp.statusCode != 201) {
-        debugPrint('AIService interpret-store failed with status: ${resp.statusCode}');
+        if (kDebugMode) {
+          debugPrint('AIService interpret-store failed with status: ${resp.statusCode}');
+        }
         _lastBackendFailure = DateTime.now();
         return null;
       }
     } catch (e) {
-      debugPrint('AIService interpret-store request failed: $e');
+      if (kDebugMode) {
+        debugPrint('AIService interpret-store request failed: $e');
+      }
       _lastBackendFailure = DateTime.now();
       return null;
     }
@@ -134,7 +144,9 @@ class AiService {
         try { 
           entry = HealthEntry.fromJson(entryMap); 
         } catch (e) {
-          debugPrint('Failed to parse health entry: $e');
+          if (kDebugMode) {
+            debugPrint('Failed to parse health entry: $e');
+          }
         }
       }
       

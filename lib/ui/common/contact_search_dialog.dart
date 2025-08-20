@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
@@ -19,6 +20,7 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
   List<Map<String, dynamic>> _selectedContacts = [];
   bool _isLoading = false;
   String? _error;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -29,16 +31,18 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
   void _onSearchChanged() {
-    // Debounce search
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (_searchController.text == _searchController.text) {
-        _loadContacts();
-      }
+    // Cancel previous timer
+    _debounceTimer?.cancel();
+    
+    // Set up new timer
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _loadContacts();
     });
   }
 
@@ -54,9 +58,13 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
       final query = _searchController.text.trim();
       
       // Try to load device contacts first (will be empty on web)
-      debugPrint('Loading device contacts for query: "$query"');
+      if (kDebugMode) {
+        debugPrint('Loading device contacts for query: "$query"');
+      }
       final deviceContacts = await _contactsService.searchContacts(query);
-      debugPrint('Found ${deviceContacts.length} device contacts');
+      if (kDebugMode) {
+        debugPrint('Found ${deviceContacts.length} device contacts');
+      }
       
       // Convert contacts to maps for easier UI handling
       final contactMaps = deviceContacts
@@ -66,17 +74,23 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
                                 contactMap['email'] != null)
           .toList();
       
-      debugPrint('Converted to ${contactMaps.length} contact maps');
+      if (kDebugMode) {
+        debugPrint('Converted to ${contactMaps.length} contact maps');
+      }
       
       // If no device contacts (e.g., on web), fall back to database users
       if (contactMaps.isEmpty) {
-        debugPrint('No device contacts found, falling back to database users');
+        if (kDebugMode) {
+          debugPrint('No device contacts found, falling back to database users');
+        }
         final db = context.read<DatabaseService>();
         final users = await db.searchUsers(
           query: query.isEmpty ? null : query,
           limit: 50,
         );
-        debugPrint('Found ${users.length} database users');
+        if (kDebugMode) {
+          debugPrint('Found ${users.length} database users');
+        }
         contactMaps.addAll(users);
       }
       
@@ -85,7 +99,9 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
           (a['name'] as String).toLowerCase().compareTo(
               (b['name'] as String).toLowerCase()));
       
-      debugPrint('Final contact list has ${contactMaps.length} entries');
+      if (kDebugMode) {
+        debugPrint('Final contact list has ${contactMaps.length} entries');
+      }
       
       if (mounted) {
         setState(() {
@@ -94,7 +110,9 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading contacts: $e');
+      if (kDebugMode) {
+        debugPrint('Error loading contacts: $e');
+      }
       if (mounted) {
         setState(() {
           _error = e.toString();

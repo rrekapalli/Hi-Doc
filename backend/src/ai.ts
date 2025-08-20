@@ -52,23 +52,44 @@ const AI_SCHEMA = z.object({
 
 export type AiInterpretation = z.infer<typeof AI_SCHEMA>;
 
-// Cached prompts
+// Cached prompts - loaded once at startup
 let _messageClassifierPrompt: string | null = null;
 let _healthDataEntryPrompt: string | null = null;
 let _healthDataTrendPrompt: string | null = null;
 let _activityDataEntryPrompt: string | null = null;
 let _medicationDataEntryPrompt: string | null = null;
 
-// Load message classifier prompt from file
+// Prompt cache for better performance
+const promptCache = new Map<string, string>();
+
+// Load and cache prompts at startup
+function initializePrompts(): void {
+  const prompts = [
+    'message_classifier_prompt.txt',
+    'health_data_entry_prompt.txt',
+    'health_data_trend_prompt.txt',
+    'activity_data_entry_prompt.txt',
+    'medication_data_entry_prompt.txt'
+  ];
+
+  for (const promptFile of prompts) {
+    try {
+      const promptPath = getPromptPath(promptFile);
+      const content = readFileSync(promptPath, 'utf-8');
+      promptCache.set(promptFile, content);
+      logger.debug(`Cached prompt: ${promptFile}`);
+    } catch (error) {
+      logger.warn(`Failed to load prompt: ${promptFile}`, { error });
+    }
+  }
+}
+
+// Load message classifier prompt from cache or file
 function getMessageClassifierPrompt(): string {
   if (!_messageClassifierPrompt) {
-    try {
-      const promptPath = getPromptPath('message_classifier_prompt.txt');
-      _messageClassifierPrompt = readFileSync(promptPath, 'utf-8');
-      logger.debug('Loaded message classifier prompt from file', { path: promptPath });
-    } catch (error) {
-      logger.warn('Failed to load message classifier prompt from file', { error });
-      throw new Error('Message classifier prompt not found');
+    _messageClassifierPrompt = promptCache.get('message_classifier_prompt.txt') || null;
+    if (!_messageClassifierPrompt) {
+      throw new Error('Message classifier prompt not found in cache');
     }
   }
   return _messageClassifierPrompt;
@@ -79,31 +100,23 @@ function getPromptPath(promptName: string): string {
   return join(process.cwd(), '..', 'assets', 'prompts', promptName);
 }
 
-// Load activity data entry prompt from file
+// Load activity data entry prompt from cache
 function getActivityDataEntryPrompt(): string {
   if (!_activityDataEntryPrompt) {
-    try {
-      const promptPath = getPromptPath('activity_data_entry_prompt.txt');
-      _activityDataEntryPrompt = readFileSync(promptPath, 'utf-8');
-      logger.debug('Loaded activity data entry prompt from file', { path: promptPath });
-    } catch (error) {
-      logger.warn('Failed to load activity data entry prompt from file', { error });
-      throw new Error('Activity data entry prompt not found');
+    _activityDataEntryPrompt = promptCache.get('activity_data_entry_prompt.txt') || null;
+    if (!_activityDataEntryPrompt) {
+      throw new Error('Activity data entry prompt not found in cache');
     }
   }
   return _activityDataEntryPrompt;
 }
 
-// Load medication data entry prompt from file
+// Load medication data entry prompt from cache
 function getMedicationDataEntryPrompt(): string {
   if (!_medicationDataEntryPrompt) {
-    try {
-      const promptPath = getPromptPath('medication_data_entry_prompt.txt');
-      _medicationDataEntryPrompt = readFileSync(promptPath, 'utf-8');
-      logger.debug('Loaded medication data entry prompt from file', { path: promptPath });
-    } catch (error) {
-      logger.warn('Failed to load medication data entry prompt from file', { error });
-      throw new Error('Medication data entry prompt not found');
+    _medicationDataEntryPrompt = promptCache.get('medication_data_entry_prompt.txt') || null;
+    if (!_medicationDataEntryPrompt) {
+      throw new Error('Medication data entry prompt not found in cache');
     }
   }
   return _medicationDataEntryPrompt;
@@ -520,3 +533,9 @@ function salvageHeuristic(msg: string): AiInterpretation | null {
   }
   return null;
 }
+
+// Initialize prompts on module load for better performance
+initializePrompts();
+
+// Export the initialization function for testing
+export { initializePrompts };

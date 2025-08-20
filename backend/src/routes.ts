@@ -1130,6 +1130,7 @@ const healthDataSchema = z.object({
   unit: z.string().optional(),
   timestamp: z.number().int().optional(),
   notes: z.string().optional(),
+  conversation_id: z.string().optional(),
 });
 
 router.post('/api/health', (req: Request, res: Response) => {
@@ -1137,12 +1138,13 @@ router.post('/api/health', (req: Request, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const id = randomUUID();
   const userId = (req as any).userId;
-  const { type, category, value, unit, timestamp, notes } = parsed.data;
+  const { type, category, value, unit, timestamp, notes, conversation_id } = parsed.data;
   const ts = timestamp ?? Date.now();
   const cat = category || 'HEALTH_PARAMS';
-  db.prepare('INSERT INTO health_data (id, user_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?)')
-    .run(id, userId, type, cat, value || null, unit || null, ts, notes || null);
-  res.status(201).json({ id, type, category: cat, value, unit, timestamp: ts, notes });
+  const convId = conversation_id || 'default-conversation';
+  db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(id, userId, convId, type, cat, value || null, unit || null, ts, notes || null);
+  res.status(201).json({ id, type, category: cat, value, unit, timestamp: ts, notes, conversation_id: convId });
 });
 
 router.get('/api/health', (req: Request, res: Response) => {
@@ -1218,6 +1220,7 @@ const medicationSchema = z.object({
   duration_days: z.number().int().optional(),
   is_forever: z.boolean().optional(),
   start_date: z.number().int().optional(),
+  conversation_id: z.string().optional(),
 });
 
 router.post('/api/medications', (req: Request, res: Response) => {
@@ -1225,10 +1228,11 @@ router.post('/api/medications', (req: Request, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const userId = (req as any).userId;
   const id = randomUUID();
-  const { name, dosage, schedule, duration_days, is_forever, start_date } = parsed.data;
-  db.prepare('INSERT INTO medications (id, user_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?)')
-    .run(id, userId, name, dosage || null, schedule || null, duration_days ?? null, is_forever ? 1 : 0, start_date ?? null);
-  res.status(201).json({ id, ...parsed.data });
+  const { name, dosage, schedule, duration_days, is_forever, start_date, conversation_id } = parsed.data;
+  const convId = conversation_id || 'default-conversation';
+  db.prepare('INSERT INTO medications (id, user_id, conversation_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(id, userId, convId, name, dosage || null, schedule || null, duration_days ?? null, is_forever ? 1 : 0, start_date ?? null);
+  res.status(201).json({ id, ...parsed.data, conversation_id: convId });
 });
 
 router.get('/api/medications', (req: Request, res: Response) => {

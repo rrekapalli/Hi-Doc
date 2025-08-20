@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import '../services/database_service.dart';
 import '../services/ai_service.dart';
@@ -39,13 +40,17 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> sendMessage(String text) async {
     if (_currentConversationId == null) {
-      debugPrint('Error: No conversation selected');
+      if (kDebugMode) {
+        debugPrint('Error: No conversation selected');
+      }
       return;
     }
 
     final id = DateTime.now().microsecondsSinceEpoch.toString();
 
-    debugPrint('Processing user message: $text');
+    if (kDebugMode) {
+      debugPrint('Processing user message: $text');
+    }
 
     try {
       _messages.add(ChatMessage(
@@ -56,11 +61,14 @@ class ChatProvider extends ChangeNotifier {
           timestamp: DateTime.now()));
       notifyListeners();
     } catch (e) {
-      debugPrint('Failed to add message to chat: $e');
+      if (kDebugMode) {
+        debugPrint('Failed to add message to chat: $e');
+      }
       return;
     }
 
-    _processMessageWithAI(text, id);
+    // Process message asynchronously to avoid blocking UI
+    unawaited(_processMessageWithAI(text, id));
   }
 
   Future<void> _processMessageWithAI(String text, String messageId) async {
@@ -73,7 +81,9 @@ class ChatProvider extends ChangeNotifier {
       final aiResult = await _ai.interpretAndStore(text, bearerToken: token);
 
       if (aiResult != null && aiResult.entry != null) {
-        debugPrint('Health data processed successfully: ${aiResult.entry?.type}');
+        if (kDebugMode) {
+          debugPrint('Health data processed successfully: ${aiResult.entry?.type}');
+        }
 
         try {
           _messages.add(ChatMessage(
@@ -87,7 +97,9 @@ class ChatProvider extends ChangeNotifier {
               backendPersisted: aiResult.persisted,
               parseSource: 'ai'));
         } catch (e) {
-          debugPrint('Failed to add AI response to chat: $e');
+          if (kDebugMode) {
+            debugPrint('Failed to add AI response to chat: $e');
+          }
         }
 
         if (aiResult.entry!.type == HealthEntryType.vital) {
@@ -138,7 +150,9 @@ class ChatProvider extends ChangeNotifier {
     // If no conversation ID provided, use the current one
     final targetConversationId = conversationId ?? _currentConversationId;
     if (targetConversationId == null) {
-      debugPrint('No conversation ID provided for loading messages');
+      if (kDebugMode) {
+        debugPrint('No conversation ID provided for loading messages');
+      }
       return;
     }
     
@@ -162,6 +176,9 @@ class ChatProvider extends ChangeNotifier {
         // Clear existing messages for this conversation
         _messages.removeWhere((msg) => msg.conversationId == targetConversationId);
 
+        // Batch process all messages before notifying listeners
+        final newMessages = <ChatMessage>[];
+        
         for (final item in items.reversed) {
           final role = item['role'] as String?;
           final content = item['content'] as String?;
@@ -179,7 +196,7 @@ class ChatProvider extends ChangeNotifier {
                   ? DateTime.fromMillisecondsSinceEpoch(createdAt)
                   : DateTime.now();
 
-              _messages.add(ChatMessage(
+              newMessages.add(ChatMessage(
                 id: messageId,
                 text: content,
                 isUser: true,
@@ -195,7 +212,7 @@ class ChatProvider extends ChangeNotifier {
                   final parsed = interpretation['parsed'] as bool? ?? false;
 
                   if (reply != null && reply.isNotEmpty) {
-                    _messages.add(ChatMessage(
+                    newMessages.add(ChatMessage(
                       id: '${messageId}_ai',
                       text: reply,
                       isUser: false,
@@ -206,28 +223,41 @@ class ChatProvider extends ChangeNotifier {
                     ));
                   }
                 } catch (e) {
-                  debugPrint('Error parsing interpretation JSON: $e');
+                  if (kDebugMode) {
+                    debugPrint('Error parsing interpretation JSON: $e');
+                  }
                 }
               }
             }
           }
         }
 
-        debugPrint('Successfully loaded ${_messages.where((m) => m.conversationId == targetConversationId).length} messages from backend for conversation: $targetConversationId');
+        // Add all messages at once and notify listeners only once
+        _messages.addAll(newMessages);
+        
+        if (kDebugMode) {
+          debugPrint('Successfully loaded ${_messages.where((m) => m.conversationId == targetConversationId).length} messages from backend for conversation: $targetConversationId');
+        }
         notifyListeners();
       } else {
-        debugPrint('Failed to load messages from backend: ${response.statusCode}');
+        if (kDebugMode) {
+          debugPrint('Failed to load messages from backend: ${response.statusCode}');
+        }
         notifyListeners();
       }
     } catch (e) {
-      debugPrint('Failed to load messages: $e');
+      if (kDebugMode) {
+        debugPrint('Failed to load messages: $e');
+      }
       notifyListeners();
     }
   }
 
   Future<void> debugMessageCounts() async {
-    final localCount = _messages.length;
-    debugPrint('Local messages: $localCount (backend messages in Data screen)');
+    if (kDebugMode) {
+      final localCount = _messages.length;
+      debugPrint('Local messages: $localCount (backend messages in Data screen)');
+    }
   }
 
   Future<void> clearAllMessages() async {
@@ -235,15 +265,21 @@ class ChatProvider extends ChangeNotifier {
       if (_currentConversationId != null) {
         // Clear messages for current conversation only
         _messages.removeWhere((msg) => msg.conversationId == _currentConversationId);
-        debugPrint('Successfully cleared messages for conversation: $_currentConversationId');
+        if (kDebugMode) {
+          debugPrint('Successfully cleared messages for conversation: $_currentConversationId');
+        }
       } else {
         // Clear all messages if no specific conversation
         _messages.clear();
-        debugPrint('Successfully cleared all local messages');
+        if (kDebugMode) {
+          debugPrint('Successfully cleared all local messages');
+        }
       }
       notifyListeners();
     } catch (e) {
-      debugPrint('Failed to clear messages: $e');
+      if (kDebugMode) {
+        debugPrint('Failed to clear messages: $e');
+      }
     }
   }
 

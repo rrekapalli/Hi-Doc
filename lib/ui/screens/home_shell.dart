@@ -15,7 +15,13 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   // Settings removed from bottom navigation; accessible via top-right user icon in each screen.
-  final _pages = const [ConversationsScreen(), MedicationsScreen(), ReportsScreen(), ActivitiesScreen(), DataScreen()];
+  static const List<Widget> _pages = [
+    ConversationsScreen(), 
+    MedicationsScreen(), 
+    ReportsScreen(), 
+    ActivitiesScreen(), 
+    DataScreen()
+  ];
 
   @override
   Widget build(BuildContext context) {

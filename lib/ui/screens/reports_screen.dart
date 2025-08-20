@@ -38,12 +38,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _loadReports() async {
-    final auth = context.read<AuthProvider>();
+    if (_isLoading) return; // Prevent multiple simultaneous loads
+    
+    _isLoading = true;
     final reportsProvider = context.read<ReportsProvider>();
     
     // Using prototype user ID for development
     const userId = 'prototype-user-12345';
     await reportsProvider.loadReports(userId);
+    _isLoading = false;
   }
 
   Future<void> _showAddReportDialog() async {
