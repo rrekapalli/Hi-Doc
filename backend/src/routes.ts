@@ -1246,31 +1246,51 @@ router.delete('/api/medications/:id', (req: Request, res: Response) => {
 
 // Reports CRUD
 const reportSchema = z.object({
+  id: z.string().optional(),
+  user_id: z.string().optional(),
+  conversation_id: z.string().optional(),
   file_path: z.string(),
-  type: z.string().optional(),
+  file_type: z.string().optional(),
+  source: z.string().optional(),
   ai_summary: z.string().optional(),
-  upload_date: z.number().int().optional(),
+  created_at: z.number().int().optional(),
+  parsed: z.number().int().min(0).max(1).optional(),
 });
 
 router.post('/api/reports', (req: Request, res: Response) => {
   const p = reportSchema.safeParse(req.body);
   if (!p.success) return res.status(400).json({ error: p.error.flatten() });
   const userId = (req as any).userId;
-  const id = randomUUID();
-  const { file_path, type, ai_summary, upload_date } = p.data;
-  const ts = upload_date ?? Date.now();
-  db.prepare('INSERT INTO reports (id, user_id, file_path, type, ai_summary, upload_date) VALUES (?,?,?,?,?,?)')
-    .run(id, userId, file_path, type || null, ai_summary || null, ts);
-  res.status(201).json({ id, file_path, type, ai_summary, upload_date: ts });
+  const reportId = p.data.id || randomUUID();
+  const { conversation_id, file_path, file_type, source, ai_summary, created_at, parsed } = p.data;
+  const ts = created_at ?? Date.now();
+  
+  db.prepare(`INSERT INTO reports 
+    (id, user_id, conversation_id, file_path, file_type, source, ai_summary, created_at, parsed) 
+    VALUES (?,?,?,?,?,?,?,?,?)`)
+    .run(reportId, userId, conversation_id || null, file_path, file_type || 'unknown', 
+         source || 'upload', ai_summary || null, ts, parsed || 0);
+  
+  res.status(201).json({ 
+    id: reportId, 
+    user_id: userId,
+    conversation_id: conversation_id || null,
+    file_path, 
+    file_type: file_type || 'unknown',
+    source: source || 'upload',
+    ai_summary: ai_summary || null,
+    created_at: ts,
+    parsed: parsed || 0
+  });
 });
 
 router.get('/api/reports', (req: Request, res: Response) => {
   const userId = (req as any).userId;
-  const type = req.query.type as string | undefined;
+  const file_type = req.query.file_type as string | undefined;
   let sql = 'SELECT * FROM reports WHERE user_id = ?';
   const params: any[] = [userId];
-  if (type) { sql += ' AND type = ?'; params.push(type); }
-  sql += ' ORDER BY upload_date DESC';
+  if (file_type) { sql += ' AND file_type = ?'; params.push(file_type); }
+  sql += ' ORDER BY created_at DESC';
   const rows = db.prepare(sql).all(...params);
   res.json(rows);
 });
@@ -1280,6 +1300,123 @@ router.delete('/api/reports/:id', (req: Request, res: Response) => {
   const info = db.prepare('DELETE FROM reports WHERE id = ? AND user_id = ?').run(req.params.id, userId);
   if (info.changes === 0) return res.status(404).json({ error: 'not found' });
   res.status(204).end();
+});
+
+// Get single report
+router.get('/api/reports/:id', (req: Request, res: Response) => {
+  const userId = (req as any).userId;
+  const row = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json(row);
+});
+
+// Update report (PATCH)
+const reportUpdateSchema = z.object({
+  ai_summary: z.string().optional(),
+  parsed: z.number().int().min(0).max(1).optional(),
+});
+
+router.patch('/api/reports/:id', (req: Request, res: Response) => {
+  const parsed = reportUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  
+  const userId = (req as any).userId;
+  const reportId = req.params.id;
+  
+  // Check if report exists and belongs to user
+  const existingReport = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(reportId, userId);
+  if (!existingReport) return res.status(404).json({ error: 'report not found' });
+  
+  const updates = parsed.data;
+  const updateFields: string[] = [];
+  const updateValues: any[] = [];
+  
+  if (updates.ai_summary !== undefined) {
+    updateFields.push('ai_summary = ?');
+    updateValues.push(updates.ai_summary);
+  }
+  
+  if (updates.parsed !== undefined) {
+    updateFields.push('parsed = ?');
+    updateValues.push(updates.parsed);
+  }
+  
+  if (updateFields.length === 0) {
+    return res.status(400).json({ error: 'no valid fields to update' });
+  }
+  
+  updateValues.push(reportId);
+  updateValues.push(userId);
+  
+  const sql = `UPDATE reports SET ${updateFields.join(', ')} WHERE id = ? AND user_id = ?`;
+  const info = db.prepare(sql).run(...updateValues);
+  
+  if (info.changes === 0) {
+    return res.status(404).json({ error: 'report not found' });
+  }
+  
+  // Return updated report
+  const updatedReport = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(reportId, userId);
+  res.json(updatedReport);
+});
+
+// Parse report endpoint (placeholder for OCR/AI integration)
+router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
+  const userId = (req as any).userId;
+  const reportId = req.params.id;
+  
+  // Check if report exists and belongs to user
+  const report = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(reportId, userId) as any;
+  if (!report) return res.status(404).json({ error: 'report not found' });
+  
+  // TODO: Implement actual OCR and AI parsing logic
+  // For now, return placeholder data
+  const placeholderHealthData = [
+    {
+      id: randomUUID(),
+      user_id: userId,
+      conversation_id: 'default-conversation',
+      type: 'GLUCOSE',
+      category: 'HEALTH_PARAMS',
+      value: '120',
+      quantity: null,
+      unit: 'mg/dL',
+      timestamp: Math.floor(Date.now() / 1000),
+      notes: 'Extracted from report',
+      report_id: reportId,
+    }
+  ];
+  
+  // Mark report as parsed
+  db.prepare('UPDATE reports SET parsed = 1 WHERE id = ? AND user_id = ?').run(reportId, userId);
+  
+  // In a real implementation, save the health data entries to the database
+  for (const healthData of placeholderHealthData) {
+    db.prepare(`
+      INSERT INTO health_data (id, user_id, conversation_id, type, category, value, quantity, unit, timestamp, notes, report_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      healthData.id,
+      healthData.user_id,
+      healthData.conversation_id,
+      healthData.type,
+      healthData.category,
+      healthData.value,
+      healthData.quantity,
+      healthData.unit,
+      healthData.timestamp,
+      healthData.notes,
+      healthData.report_id
+    );
+  }
+  
+  logger.info('Report parsed successfully', { reportId, healthDataCount: placeholderHealthData.length });
+  
+  res.json({
+    success: true,
+    health_data: placeholderHealthData,
+    message: 'Report parsed successfully'
+  });
 });
 
 // Reminders CRUD
