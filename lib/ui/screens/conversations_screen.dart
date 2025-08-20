@@ -6,6 +6,7 @@ import '../common/hi_doc_app_bar.dart';
 import '../common/contact_search_dialog.dart';
 import './conversation_detail_screen.dart';
 import 'user_settings_screen.dart';
+import '../../providers/chat_provider.dart';
 
 class ConversationsScreen extends StatefulWidget {
   const ConversationsScreen({super.key});
@@ -20,6 +21,8 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   List<Map<String, dynamic>> _allConversations = [];
   List<Map<String, dynamic>> _filteredConversations = [];
   bool _isSearching = false;
+  String? _selectedId; // for split view
+  bool _initialSelectionScheduled = false; // guard to avoid repeated scheduling
 
   @override
   void initState() {
@@ -56,7 +59,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           return title.contains(query) || 
                  memberNames.contains(query) || 
                  lastMessage.contains(query);
-        }).toList();
+      }).toList();
         _isSearching = true;
       });
     }
@@ -90,11 +93,22 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     return conversation['title'] ?? 'Chat with ${conversation['member_names']}';
   }
 
+  List<Map<String, dynamic>> _sorted(List<Map<String, dynamic>> conversations) {
+    final sortedConversations = List.of(conversations)..sort((a, b) {
+      if ((a['is_default'] ?? 0) == 1) return -1;
+      if ((b['is_default'] ?? 0) == 1) return 1;
+      final aTime = a['last_message_at'] as int? ?? 0;
+      final bTime = b['last_message_at'] as int? ?? 0;
+      return bTime.compareTo(aTime);
+    });
+    return sortedConversations;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
-    return Scaffold(
+  return Scaffold(
       appBar: HiDocAppBar(
         pageTitle: 'Messages',
         actions: [
@@ -145,9 +159,38 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               ),
             ),
           
-          // Conversations list
+          // Responsive: on wide screens show split view (30/70)
           Expanded(
-            child: _isSearching ? _buildSearchResults() : _buildConversationsList(),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final wide = constraints.maxWidth >= 900; // web/desktop threshold
+                if (!wide) {
+                  return _isSearching ? _buildSearchResults() : _buildConversationsList();
+                }
+
+                return Row(
+                  children: [
+                    // Left pane: conversations list (30%)
+                    SizedBox(
+                      width: constraints.maxWidth * 0.30,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          border: Border(
+                            right: BorderSide(color: theme.dividerColor.withOpacity(.5)),
+                          ),
+                        ),
+                        child: _buildSplitConversationsList(),
+                      ),
+                    ),
+                    // Right pane: conversation detail (70%)
+                    Expanded(
+                      child: _buildSplitDetailPane(),
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -258,21 +301,14 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
 
   Widget _buildConversationsListView(List<Map<String, dynamic>> conversations) {
     // Sort conversations: "Me" first, then by last message time
-    final sortedConversations = List.of(conversations)..sort((a, b) {
-      if ((a['is_default'] ?? 0) == 1) return -1;
-      if ((b['is_default'] ?? 0) == 1) return 1;
-      
-      final aTime = a['last_message_at'] as int? ?? 0;
-      final bTime = b['last_message_at'] as int? ?? 0;
-      return bTime.compareTo(aTime);
-    });
+    final sortedConversations = _sorted(conversations);
 
-    return ListView.builder(
+  return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: sortedConversations.length,
       itemBuilder: (context, index) {
         final conversation = sortedConversations[index];
-        return _buildConversationTile(conversation);
+    return _buildConversationTile(conversation);
       },
     );
   }
@@ -286,17 +322,29 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     final lastMessageTime = lastMessageAt != null 
       ? DateTime.fromMillisecondsSinceEpoch(lastMessageAt)
       : null;
+    final isSelected = _selectedId == conversation['id'];
 
     return InkWell(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ConversationDetailScreen(
-            conversationId: conversation['id'] as String,
-            title: _getConversationTitle(conversation),
-            conversationType: conversation['type'] as String? ?? 'direct',
-          ),
-        ),
-      ),
+      onTap: () {
+        final wide = MediaQuery.of(context).size.width >= 900;
+        if (wide) {
+          final id = conversation['id'] as String;
+          setState(() {
+            _selectedId = id;
+          });
+          // In split view, the detail pane will load messages using its own initState
+        } else {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ConversationDetailScreen(
+                conversationId: conversation['id'] as String,
+                title: _getConversationTitle(conversation),
+                conversationType: conversation['type'] as String? ?? 'direct',
+              ),
+            ),
+          );
+        }
+      },
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: 16,
@@ -333,7 +381,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                         child: Text(
                           _getConversationTitle(conversation),
                           style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: unreadCount > 0 
+                            fontWeight: (unreadCount > 0 || isSelected)
                               ? FontWeight.bold 
                               : null,
                           ),
@@ -389,6 +437,64 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  // Split view helpers
+  Widget _buildSplitConversationsList() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _conversationsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+        final conversations = snapshot.data ?? [];
+        _allConversations = conversations;
+        if (!_isSearching) _filteredConversations = conversations;
+
+        // Default selection: visible first item (sorted)
+        if (!_initialSelectionScheduled && _selectedId == null && conversations.isNotEmpty) {
+          _initialSelectionScheduled = true;
+          final sorted = _sorted(conversations);
+          final initialId = sorted.first['id'] as String;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() {
+              _selectedId = initialId;
+            });
+            // The right pane's ConversationDetailScreen will handle loading
+          });
+        }
+        if (conversations.isEmpty) {
+          return _buildEmptyState();
+        }
+        return _buildConversationsListView(conversations);
+      },
+    );
+  }
+
+  Widget _buildSplitDetailPane() {
+    if (_selectedId == null) {
+      return Center(
+        child: Text(
+          'Select a conversation',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+      );
+    }
+    // Find the selected conversation's title/type for header
+    final conv = _allConversations.firstWhere(
+      (c) => c['id'] == _selectedId,
+      orElse: () => {'title': 'Conversation', 'type': 'direct'},
+    );
+    return ConversationDetailScreen(
+      conversationId: _selectedId!,
+      title: _getConversationTitle(conv),
+      conversationType: conv['type'] as String? ?? 'direct',
+      embedded: true,
     );
   }
 }
