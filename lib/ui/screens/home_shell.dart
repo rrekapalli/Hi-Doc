@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import './conversations_screen.dart';
 import './medications_screen.dart';
 import 'reports_screen.dart';
-import 'group_screen.dart';
+import 'activities_screen.dart';
 import 'debug_entries_screen.dart';
 import 'data_screen.dart';
 
@@ -15,7 +15,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   // Settings removed from bottom navigation; accessible via top-right user icon in each screen.
-  final _pages = const [ConversationsScreen(), MedicationsScreen(), ReportsScreen(), GroupScreen(), DataScreen()];
+  final _pages = const [ConversationsScreen(), MedicationsScreen(), ReportsScreen(), ActivitiesScreen(), DataScreen()];
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +28,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: 'Messages'),
           NavigationDestination(icon: Icon(Icons.medication), label: 'Medications'),
           NavigationDestination(icon: Icon(Icons.description_outlined), label: 'Reports'),
-          NavigationDestination(icon: Icon(Icons.group_outlined), label: 'Group'),
+          NavigationDestination(icon: Icon(Icons.local_activity_outlined), label: 'Activities'),
           NavigationDestination(icon: Icon(Icons.table_chart_outlined), label: 'Data'),
         ],
       ),
