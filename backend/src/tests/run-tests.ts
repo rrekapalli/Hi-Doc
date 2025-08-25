@@ -43,7 +43,7 @@ async function createApp() {
       type: 'glucose', 
       value: '95', 
       unit: 'mg/dL',
-      conversation_id: 'default-conversation'
+      profile_id: 'default-profile'
     });
     log(hRes.status === 201, 'create health');
 
@@ -54,7 +54,7 @@ async function createApp() {
     const mRes = await request(app).post('/api/medications').set('Authorization', `Bearer ${token}`).send({ 
       name: 'Paracetamol', 
       dosage: '500mg',
-      conversation_id: 'default-conversation'
+      profile_id: 'default-profile'
     });
     log(mRes.status === 201, 'create medication');
 

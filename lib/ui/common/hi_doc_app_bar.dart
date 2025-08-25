@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'app_theme.dart';
+import '../../providers/selected_profile_provider.dart';
+import 'profile_switch_dialog.dart';
 
 class HiDocAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String pageTitle;
@@ -42,7 +45,24 @@ class HiDocAppBar extends StatelessWidget implements PreferredSizeWidget {
           letterSpacing: 0.2,
         ),
       ),
-      actions: actions,
+      actions: [
+        Builder(builder: (context) {
+          final selectedProfileId = context.watch<SelectedProfileProvider?>()?.selectedProfileId;
+          return IconButton(
+            tooltip: selectedProfileId == null
+                ? 'Switch Profiles'
+                : 'Switch Profiles (current: ${selectedProfileId.length > 8 ? selectedProfileId.substring(0,8) : selectedProfileId})',
+            icon: const Icon(Icons.account_circle_outlined),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (_) => const ProfileSwitchDialog(),
+              );
+            },
+          );
+        }),
+        if (actions != null) ...actions!,
+      ],
       bottom: PreferredSize(
         preferredSize: Size.fromHeight(subtitleHeight),
         child: Container(

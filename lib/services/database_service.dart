@@ -9,7 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../config/app_config.dart';
 import '../models/health_entry.dart';
 import '../models/message.dart';
-import '../models/conversation.dart';
+import '../models/profile.dart';
 import 'notification_service.dart';
 import '../services/auth_service.dart';
 
@@ -24,26 +24,26 @@ class DatabaseService {
 
   DatabaseService({required NotificationService notificationService}) : _notificationService = notificationService;
 
-  // Fetch all conversations for the current user
-  Future<List<Map<String, dynamic>>> getConversations() async {
+  // Fetch all profiles for the current user
+  Future<List<Map<String, dynamic>>> getProfiles() async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
-      Uri.parse('$_backendBaseUrl/api/conversations'),
+      Uri.parse('$_backendBaseUrl/api/profiles'),
       headers: headers,
     );
 
     if (response.statusCode == 200) {
       return List<Map<String, dynamic>>.from(json.decode(response.body));
     } else {
-      throw Exception('Failed to load conversations');
+      throw Exception('Failed to load profiles');
     }
   }
 
-  // Fetch messages for a specific conversation
-  Future<List<Map<String, dynamic>>> getConversationMessages(String conversationId) async {
+  // Fetch messages for a specific profile
+  Future<List<Map<String, dynamic>>> getProfileMessages(String profileId) async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
-      Uri.parse('$_backendBaseUrl/api/conversations/$conversationId/messages'),
+      Uri.parse('$_backendBaseUrl/api/profiles/$profileId/messages'),
       headers: headers,
     );
 
@@ -54,16 +54,16 @@ class DatabaseService {
     }
   }
 
-  // Send a new message
-  Future<String> sendConversationMessage({
-    required String conversationId,
+  // Send a new message to a profile
+  Future<String> sendProfileMessage({
+    required String profileId,
     required String content,
     String contentType = 'text',
   }) async {
     final headers = await _getAuthHeaders();
     headers['Content-Type'] = 'application/json';
     final response = await http.post(
-      Uri.parse('$_backendBaseUrl/api/conversations/$conversationId/messages'),
+      Uri.parse('$_backendBaseUrl/api/profiles/$profileId/messages'),
       headers: headers,
       body: json.encode({
         'content': content,
@@ -75,25 +75,25 @@ class DatabaseService {
       final data = json.decode(response.body);
       return data['id'] as String;
     } else {
-      throw Exception('Failed to send message');
+    throw Exception('Failed to send profile message');
     }
   }
 
-  // Mark conversation as read
-  Future<void> markConversationAsRead(String conversationId) async {
+  // Mark profile as read
+  Future<void> markProfileAsRead(String profileId) async {
     final headers = await _getAuthHeaders();
     final response = await http.post(
-      Uri.parse('$_backendBaseUrl/api/conversations/$conversationId/read'),
+    Uri.parse('$_backendBaseUrl/api/profiles/$profileId/read'),
       headers: headers,
     );
 
     if (response.statusCode != 200) {
-      throw Exception('Failed to mark conversation as read');
+    throw Exception('Failed to mark profile as read');
     }
   }
 
-  // Create a new conversation
-  Future<String> createConversation({
+  // Create a new profile
+  Future<String> createProfile({
     String? title,
     required String type,
     required List<String> memberIds,
@@ -101,7 +101,7 @@ class DatabaseService {
     final headers = await _getAuthHeaders();
     headers['Content-Type'] = 'application/json';
     final response = await http.post(
-      Uri.parse('$_backendBaseUrl/api/conversations'),
+    Uri.parse('$_backendBaseUrl/api/profiles'),
       headers: headers,
       body: json.encode({
         'title': title,
@@ -114,11 +114,11 @@ class DatabaseService {
       final data = json.decode(response.body);
       return data['id'] as String;
     } else {
-      throw Exception('Failed to create conversation');
+  throw Exception('Failed to create profile');
     }
   }
 
-  // Search for users to add to conversations
+  // Search for users to add to a new profile chat (direct or group)
   Future<List<Map<String, dynamic>>> searchUsers({
     String? query,
     int limit = 20,

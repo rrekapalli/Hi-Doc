@@ -20,9 +20,9 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final chatProvider = context.read<ChatProvider>();
-      // Set a default conversation ID for the main chat screen
-      chatProvider.setCurrentConversation('default');
-      chatProvider.loadMessages('default');
+  // Set a default profile ID for the main chat screen
+  chatProvider.setCurrentProfile('default-profile');
+  chatProvider.loadMessages('default-profile');
     });
   }
 

@@ -45,7 +45,7 @@ class ReportsProvider with ChangeNotifier {
     required String userId,
     required String filePath,
     required ReportSource source,
-    String? conversationId,
+  String? profileId,
     String? aiSummary,
     String? originalFileName,
   }) async {
@@ -59,7 +59,7 @@ class ReportsProvider with ChangeNotifier {
       final report = Report(
         id: _generateId(),
         userId: userId,
-        conversationId: conversationId,
+  profileId: profileId,
         filePath: filePath,
         fileType: fileType,
         source: source,
@@ -90,7 +90,7 @@ class ReportsProvider with ChangeNotifier {
     required File file,
     required String userId,
     required ReportSource source,
-    String? conversationId,
+  String? profileId,
     String? aiSummary,
   }) async {
     _error = null;
@@ -101,7 +101,7 @@ class ReportsProvider with ChangeNotifier {
         file: file,
         userId: userId,
         source: source,
-        conversationId: conversationId,
+  profileId: profileId,
         aiSummary: aiSummary,
       );
       
@@ -124,7 +124,7 @@ class ReportsProvider with ChangeNotifier {
     required String fileName,
     required String userId,
     required ReportSource source,
-    String? conversationId,
+  String? profileId,
     String? aiSummary,
   }) async {
     _error = null;
@@ -136,7 +136,7 @@ class ReportsProvider with ChangeNotifier {
         fileName: fileName,
         userId: userId,
         source: source,
-        conversationId: conversationId,
+  profileId: profileId,
         aiSummary: aiSummary,
       );
       

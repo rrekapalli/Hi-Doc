@@ -57,9 +57,9 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
             }
             if (activities.isEmpty) {
               return Center(
-                child: Text(chat.currentConversationId == null
-                    ? 'No activities recorded yet.'
-                    : 'No activities for this conversation.'),
+        child: Text(chat.currentProfileId == null
+          ? 'No activities recorded yet.'
+          : 'No activities for this profile.'),
               );
             }
             return ListView.separated(
@@ -115,7 +115,7 @@ class _ActivityTile extends StatelessWidget {
         dateStr,
       ].join('\n')),
       isThreeLine: true,
-      trailing: Text(activity.conversationId, style: Theme.of(context).textTheme.labelSmall),
+  trailing: Text(activity.profileId, style: Theme.of(context).textTheme.labelSmall),
     );
   }
 }

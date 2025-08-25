@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'providers/chat_provider.dart';
+import 'providers/selected_profile_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/reports_provider.dart';
@@ -57,10 +58,11 @@ class HiDocApp extends StatelessWidget {
         Provider<DatabaseService>.value(value: db),
         Provider<AuthService>.value(value: authService),
         ChangeNotifierProvider(create: (_) => AuthProvider(authService)),
-        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+  ChangeNotifierProvider(create: (_) => SettingsProvider()),
+  ChangeNotifierProvider(create: (_) => SelectedProfileProvider()),
         ChangeNotifierProvider(create: (context) => ChatProvider(db: db, authService: context.read<AuthService>())),
         ChangeNotifierProvider(create: (_) => ReportsProvider()),
-        // Activities depends on ChatProvider for current conversation
+  // Activities depends on ChatProvider for current profile
         ChangeNotifierProxyProvider<ChatProvider, ActivitiesProvider>(
           create: (context) => ActivitiesProvider(chatProvider: context.read<ChatProvider>()),
           update: (context, chat, previous) => previous ?? ActivitiesProvider(chatProvider: chat),

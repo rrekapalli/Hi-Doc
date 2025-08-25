@@ -7,7 +7,7 @@ class ChatMessage {
   final String text;
   final bool isUser;
   final DateTime timestamp;
-  final String conversationId;
+  final String profileId; // renamed from conversationId
   final HealthEntry? parsedEntry;
   final HealthDataEntry? healthDataEntry;
   final bool parseFailed;
@@ -23,7 +23,7 @@ class ChatMessage {
     required this.id,
     required this.text,
     required this.isUser,
-    required this.conversationId,
+  required this.profileId,
     DateTime? timestamp,
     this.parsedEntry,
     this.healthDataEntry,

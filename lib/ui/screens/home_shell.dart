@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import './conversations_screen.dart';
+import './profiles_screen.dart';
 import './medications_screen.dart';
 import 'reports_screen.dart';
 import 'activities_screen.dart';
@@ -16,7 +16,7 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   // Settings removed from bottom navigation; accessible via top-right user icon in each screen.
   static const List<Widget> _pages = [
-    ConversationsScreen(), 
+  ProfilesScreen(), 
     MedicationsScreen(), 
     ReportsScreen(), 
     ActivitiesScreen(), 

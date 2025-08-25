@@ -9,7 +9,7 @@ part of 'report.dart';
 Report _$ReportFromJson(Map<String, dynamic> json) => Report(
       id: json['id'] as String,
       userId: json['user_id'] as String,
-      conversationId: json['conversation_id'] as String?,
+  profileId: json['profile_id'] as String? ?? json['conversation_id'] as String?,
       filePath: json['file_path'] as String,
       fileType: $enumDecode(_$ReportFileTypeEnumMap, json['file_type']),
       source: $enumDecode(_$ReportSourceEnumMap, json['source']),
@@ -22,7 +22,7 @@ Report _$ReportFromJson(Map<String, dynamic> json) => Report(
 Map<String, dynamic> _$ReportToJson(Report instance) => <String, dynamic>{
       'id': instance.id,
       'user_id': instance.userId,
-      'conversation_id': instance.conversationId,
+  'profile_id': instance.profileId,
       'file_path': instance.filePath,
       'file_type': _$ReportFileTypeEnumMap[instance.fileType]!,
       'source': _$ReportSourceEnumMap[instance.source]!,
@@ -41,5 +41,5 @@ const _$ReportFileTypeEnumMap = {
 const _$ReportSourceEnumMap = {
   ReportSource.camera: 'camera',
   ReportSource.upload: 'upload',
-  ReportSource.conversation: 'conversation',
+  ReportSource.profile: 'profile',
 };

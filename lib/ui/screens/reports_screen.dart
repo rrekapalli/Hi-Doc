@@ -317,7 +317,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         file: file,
         userId: userId,
         source: source,
-        conversationId: 'default-conversation',
+        profileId: 'default-profile',
       );
       
       if (mounted && report != null) {
@@ -350,7 +350,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         fileName: fileName,
         userId: userId,
         source: source,
-        conversationId: 'default-conversation',
+        profileId: 'default-profile',
       );
       
       if (mounted && report != null) {

@@ -33,7 +33,7 @@ class AiService {
     return false;
   }
 
-  Future<AiInterpretResult?> interpret(String message, {String? bearerToken, String? conversationId}) async {
+  Future<AiInterpretResult?> interpret(String message, {String? bearerToken, String? profileId}) async {
     final base = AppConfig.backendBaseUrl;
     final interpretUri = Uri.parse('$base/api/ai/interpret');
 
@@ -57,7 +57,7 @@ class AiService {
 
     http.Response resp;
     try {
-      resp = await http.post(interpretUri, headers: headers, body: jsonEncode({'message': message, if (conversationId != null) 'conversation_id': conversationId})).timeout(const Duration(seconds: 8));
+  resp = await http.post(interpretUri, headers: headers, body: jsonEncode({'message': message, if (profileId != null) 'profile_id': profileId})).timeout(const Duration(seconds: 8));
     } on TimeoutException catch (_) {
       _lastBackendFailure = DateTime.now();
       if (kDebugMode) {
@@ -98,7 +98,7 @@ class AiService {
     }
   }
 
-  Future<AiInterpretResult?> interpretAndStore(String message, {String? bearerToken, String? conversationId}) async {
+  Future<AiInterpretResult?> interpretAndStore(String message, {String? bearerToken, String? profileId}) async {
     final base = AppConfig.backendBaseUrl;
     final storeUri = Uri.parse('$base/api/ai/interpret-store');
     
@@ -117,7 +117,7 @@ class AiService {
     
     http.Response resp;
     try {
-      resp = await http.post(storeUri, headers: headers, body: jsonEncode({'message': message, if (conversationId != null) 'conversation_id': conversationId})).timeout(const Duration(seconds: 10));
+  resp = await http.post(storeUri, headers: headers, body: jsonEncode({'message': message, if (profileId != null) 'profile_id': profileId})).timeout(const Duration(seconds: 10));
       
       if (resp.statusCode != 200 && resp.statusCode != 201) {
         if (kDebugMode) {

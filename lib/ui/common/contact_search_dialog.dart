@@ -135,7 +135,7 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
     });
   }
 
-  String _generateConversationTitle() {
+  String _generateProfileTitle() {
     if (_selectedContacts.isEmpty) return 'New Chat';
     if (_selectedContacts.length == 1) {
       return 'Chat with ${_selectedContacts.first['name'] ?? 'Unknown'}';
@@ -144,12 +144,12 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
     return '$firstName & Others';
   }
 
-  Future<void> _createConversation() async {
+  Future<void> _createProfile() async {
     if (_selectedContacts.isEmpty) return;
 
     try {
       final db = context.read<DatabaseService>();
-      final title = _generateConversationTitle();
+  final title = _generateProfileTitle();
       
       // Create or get user IDs for all selected contacts
       final memberIds = <String>[];
@@ -174,7 +174,7 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
         }
       }
       
-      final conversationId = await db.createConversation(
+      final profileId = await db.createProfile(
         title: title,
         type: memberIds.length == 1 ? 'direct' : 'group',
         memberIds: memberIds,
@@ -182,7 +182,7 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
       
       if (mounted) {
         Navigator.of(context).pop({
-          'conversationId': conversationId,
+          'profileId': profileId,
           'title': title,
           'type': memberIds.length == 1 ? 'direct' : 'group',
         });
@@ -190,7 +190,7 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create conversation: $e')),
+          SnackBar(content: Text('Failed to create profile: $e')),
         );
       }
     }
@@ -277,8 +277,8 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(
-                  onPressed: _selectedContacts.isEmpty ? null : _createConversation,
-                  child: const Text('Create Chat'),
+                  onPressed: _selectedContacts.isEmpty ? null : _createProfile,
+                  child: const Text('Create Profile Chat'),
                 ),
               ],
             ),

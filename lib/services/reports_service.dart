@@ -108,7 +108,7 @@ class ReportsService {
         body: jsonEncode({
           'id': report.id,
           'user_id': report.userId,
-          'conversation_id': report.conversationId,
+          'profile_id': report.profileId,
           'file_path': report.filePath,
           'file_type': report.fileType.name,
           'source': report.source.name,
@@ -137,7 +137,7 @@ class ReportsService {
     required File file,
     required String userId,
     required ReportSource source,
-    String? conversationId,
+  String? profileId,
     String? aiSummary,
   }) async {
     try {
@@ -156,7 +156,7 @@ class ReportsService {
       
       // Add additional fields
       request.fields['source'] = source.name;
-      request.fields['conversation_id'] = conversationId ?? 'default-conversation';
+  request.fields['profile_id'] = profileId ?? 'default-profile';
       if (aiSummary != null) {
         request.fields['ai_summary'] = aiSummary;
       }
@@ -185,7 +185,7 @@ class ReportsService {
     required String fileName,
     required String userId,
     required ReportSource source,
-    String? conversationId,
+  String? profileId,
     String? aiSummary,
   }) async {
     try {
@@ -204,7 +204,7 @@ class ReportsService {
       
       // Add additional fields
       request.fields['source'] = source.name;
-      request.fields['conversation_id'] = conversationId ?? 'default-conversation';
+  request.fields['profile_id'] = profileId ?? 'default-profile';
       if (aiSummary != null) {
         request.fields['ai_summary'] = aiSummary;
       }
@@ -374,7 +374,7 @@ class ReportsService {
     return Report(
       id: json['id'],
       userId: json['user_id'],
-      conversationId: json['conversation_id'],
+  profileId: json['profile_id'] ?? json['conversation_id'],
       filePath: filePath ?? '',
       fileType: _parseFileType(typeStr, filePath: filePath, originalName: originalName),
       source: _parseSource(json['source']),

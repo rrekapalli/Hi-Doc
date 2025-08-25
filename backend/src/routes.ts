@@ -64,7 +64,7 @@ const upload = multer({
 });
 interface DbMessage {
   id: string;
-  conversation_id: string;
+  profile_id: string;
   sender_id: string;
   user_id: string;
   role: 'user' | 'system' | 'assistant';
@@ -104,34 +104,34 @@ router.use((req: Request, res: Response, next: NextFunction) => {
 
 // Import conversation-related functions
 import {
-  getConversations,
+  getProfiles,
   getMessages,
   sendMessage,
-  createConversation,
-  markConversationAsRead,
-  updateConversationTitle,
-  addConversationMembers,
-  removeConversationMember,
-  getConversationMembers,
-} from './conversations.js';
+  createProfile,
+  markProfileAsRead,
+  updateProfileTitle,
+  addProfileMembers,
+  removeProfileMember,
+  getProfileMembers,
+} from './profiles.js';
 
 // Conversation routes
-router.get('/api/conversations', async (req: Request, res: Response) => {
+router.get('/api/profiles', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const conversations = await getConversations(userId);
-    res.json(conversations);
+  const profiles = await getProfiles(userId);
+  res.json(profiles);
   } catch (error) {
-    logger.error('Error getting conversations:', error);
+  logger.error('Error getting profiles:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-router.get('/api/conversations/:id/messages', async (req: Request, res: Response) => {
+router.get('/api/profiles/:id/messages', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
@@ -153,7 +153,7 @@ router.get('/api/conversations/:id/messages', async (req: Request, res: Response
   }
 });
 
-router.post('/api/conversations/:id/messages', async (req: Request, res: Response) => {
+router.post('/api/profiles/:id/messages', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
@@ -167,7 +167,7 @@ router.post('/api/conversations/:id/messages', async (req: Request, res: Respons
     }
 
     const messageId = await sendMessage({
-      conversation_id: id,
+  profile_id: id,
       sender_id: userId,
       role: 'user',
       content,
@@ -182,7 +182,7 @@ router.post('/api/conversations/:id/messages', async (req: Request, res: Respons
   }
 });
 
-router.post('/api/conversations', async (req: Request, res: Response) => {
+router.post('/api/profiles', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -197,21 +197,21 @@ router.post('/api/conversations', async (req: Request, res: Response) => {
     // Always include the creator in the members list
     const uniqueMemberIds = Array.from(new Set([...memberIds, userId]));
 
-    const conversationId = await createConversation(
+  const profileId = await createProfile(
       title,
       type,
       uniqueMemberIds,
       userId
     );
 
-    res.json({ id: conversationId });
+  res.json({ id: profileId });
   } catch (error) {
     logger.error('Error creating conversation:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-router.post('/api/conversations/:id/read', async (req: Request, res: Response) => {
+router.post('/api/profiles/:id/read', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
@@ -219,7 +219,7 @@ router.post('/api/conversations/:id/read', async (req: Request, res: Response) =
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    await markConversationAsRead(id, userId);
+  await markProfileAsRead(id, userId);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error marking conversation as read:', error);
@@ -227,7 +227,7 @@ router.post('/api/conversations/:id/read', async (req: Request, res: Response) =
   }
 });
 
-router.put('/api/conversations/:id/title', async (req: Request, res: Response) => {
+router.put('/api/profiles/:id/title', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { title } = req.body;
@@ -235,7 +235,7 @@ router.put('/api/conversations/:id/title', async (req: Request, res: Response) =
       return res.status(400).json({ error: 'Title is required' });
     }
 
-    await updateConversationTitle(id, title);
+  await updateProfileTitle(id, title);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error updating conversation title:', error);
@@ -243,7 +243,7 @@ router.put('/api/conversations/:id/title', async (req: Request, res: Response) =
   }
 });
 
-router.post('/api/conversations/:id/members', async (req: Request, res: Response) => {
+router.post('/api/profiles/:id/members', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { userIds } = req.body;
@@ -251,7 +251,7 @@ router.post('/api/conversations/:id/members', async (req: Request, res: Response
       return res.status(400).json({ error: 'User IDs array is required' });
     }
 
-    await addConversationMembers(id, userIds);
+  await addProfileMembers(id, userIds);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error adding conversation members:', error);
@@ -259,10 +259,10 @@ router.post('/api/conversations/:id/members', async (req: Request, res: Response
   }
 });
 
-router.delete('/api/conversations/:id/members/:userId', async (req: Request, res: Response) => {
+router.delete('/api/profiles/:id/members/:userId', async (req: Request, res: Response) => {
   try {
     const { id, userId } = req.params;
-    await removeConversationMember(id, userId);
+  await removeProfileMember(id, userId);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error removing conversation member:', error);
@@ -270,10 +270,10 @@ router.delete('/api/conversations/:id/members/:userId', async (req: Request, res
   }
 });
 
-router.get('/api/conversations/:id/members', async (req: Request, res: Response) => {
+router.get('/api/profiles/:id/members', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const members = await getConversationMembers(id);
+  const members = await getProfileMembers(id);
     res.json(members);
   } catch (error) {
     logger.error('Error getting conversation members:', error);
@@ -281,7 +281,7 @@ router.get('/api/conversations/:id/members', async (req: Request, res: Response)
   }
 });
 
-// Search users endpoint for creating new conversations
+// Search users endpoint for creating new profiles (chat entities)
 router.get('/api/users/search', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
@@ -366,6 +366,34 @@ const runtimeDebug: { db:boolean; ai:boolean } = {
   db: process.env.DEBUG_DB === '1',
   ai: process.env.DEBUG_AI === '1',
 };
+// Detect legacy messages schema variants (conversation_id vs profile_id)
+let _messagesSchemaChecked = false;
+let _hasConversationIdCol = false;
+let _hasProfileIdCol = false;
+function ensureMessagesSchemaMeta() {
+  if (_messagesSchemaChecked) return;
+  try {
+    const cols = db.prepare('PRAGMA table_info(messages)').all() as any[];
+    _hasConversationIdCol = cols.some(c => c.name === 'conversation_id');
+    _hasProfileIdCol = cols.some(c => c.name === 'profile_id');
+  } catch (_) {}
+  _messagesSchemaChecked = true;
+}
+
+function insertMessageRecord({ id, profileId, userId, role, content, createdAt, processed = 0 }: { id:string; profileId:string; userId:string; role:string; content:string; createdAt:number; processed?:number; }) {
+  ensureMessagesSchemaMeta();
+  // Legacy table had conversation_id NOT NULL. New table uses profile_id. Some migrated tables may have both.
+  if (_hasConversationIdCol && !_hasProfileIdCol) {
+    db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,?)')
+      .run(id, profileId, userId, role, content, createdAt, processed);
+  } else if (_hasConversationIdCol && _hasProfileIdCol) {
+    db.prepare('INSERT INTO messages (id, conversation_id, profile_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,?,?)')
+      .run(id, profileId, profileId, userId, role, content, createdAt, processed);
+  } else {
+    db.prepare('INSERT INTO messages (id, profile_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,?)')
+      .run(id, profileId, userId, role, content, createdAt, processed);
+  }
+}
 
 // Instrument sqlite wrapper lazily (only once)
 const _origPrepare = (db as any).prepare.bind(db);
@@ -408,8 +436,6 @@ router.post('/api/debug/flags', (req, res)=> {
   res.json(runtimeDebug);
 });
 
-// --- Simple in-memory vector search over param_targets (bag-of-words cosine) ---
-// This avoids external dependencies while enabling approximate semantic mapping of a user message
 // to the closest health parameter(s) defined in param_targets.
 interface ParamTargetRow { param_code: string; target_min?: number|null; target_max?: number|null; preferred_unit?: string|null; description?: string|null; notes?: string|null; organ_system?: string|null; }
 
@@ -493,16 +519,16 @@ router.post('/api/auth/microsoft/exchange', async (req: Request, res: Response) 
   const { id_token: idToken } = req.body || {};
   if (!idToken) { logger.warn('Microsoft exchange missing id_token'); return res.status(400).json({ error: 'id_token required' }); }
   try {
-  const payload = await verifyMicrosoftIdToken(idToken);
-  const email = payload.email || payload.preferred_username;
-  if (!email) { logger.warn('Microsoft exchange email claim missing'); return res.status(400).json({ error: 'email claim missing' }); }
-  const user: any = upsertUser(email, payload.name, (payload as any).picture);
-  const jwt = await signToken({ uid: user.id, email });
-  logger.info('Microsoft auth success', { userId: user.id, email });
-  res.json({ token: jwt, user });
+    const payload: any = await verifyMicrosoftIdToken(idToken);
+    if (!payload || !payload.sub) { logger.warn('Microsoft verify missing sub'); return res.status(400).json({ error: 'invalid token' }); }
+    const email = payload.email || payload.preferred_username || `${payload.sub}@microsoft`;
+    const user: any = upsertUser(email, payload.name, payload.picture);
+    const jwt = await signToken({ uid: user.id, email });
+    logger.info('Microsoft auth success', { userId: user.id, email });
+    res.json({ token: jwt, user });
   } catch (e: any) {
-  logger.warn('Microsoft auth verification failed', { error: e.message });
-  res.status(400).json({ error: 'verification failed', detail: e.message });
+    logger.warn('Microsoft auth verification failed', { error: e.message });
+    res.status(400).json({ error: 'verification failed', detail: e.message });
   }
 });
 
@@ -557,7 +583,9 @@ router.post('/api/ai/reload-prompts', (_req: Request, res: Response) => {
   }
 });
 
-// Simple regex-based health message parser as fallback
+// --- Simple in-memory vector search over param_targets (bag-of-words cosine) ---
+// This avoids external dependencies while enabling approximate semantic mapping of a user message
+// to the closest health parameter(s) defined in param_targets.
 function parseSimpleHealthMessage(message: string, userId: string = 'prototype-user-12345'): any | null {
   const lower = message.toLowerCase().trim();
   
@@ -631,8 +659,7 @@ router.post('/api/ai/process-with-prompt', async (req: Request, res: Response) =
     const userMessageId = randomUUID();
     const createdAt = Date.now();
     
-    db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,0)')
-      .run(userMessageId, 'me-conversation', userId, 'user', String(message), createdAt);
+  insertMessageRecord({ id: userMessageId, profileId: 'me-conversation', userId, role: 'user', content: String(message), createdAt, processed: 0 });
     
     logger.debug('Saved user message to messages table', { messageId: userMessageId });
     
@@ -778,8 +805,7 @@ router.post('/api/ai/process-with-prompt', async (req: Request, res: Response) =
       const aiMessageId = randomUUID();
       const aiResponse = reply || 'Health data processed';
       
-      db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,1)')
-        .run(aiMessageId, 'me-conversation', userId, 'assistant', aiResponse, Date.now());
+  insertMessageRecord({ id: aiMessageId, profileId: 'me-profile', userId, role: 'assistant', content: aiResponse, createdAt: Date.now(), processed: 1 });
       
       // Step 3: Update user message as processed and link to health data if extracted
       const interpretation = {
@@ -917,10 +943,10 @@ router.post('/api/ai/process-with-prompt', async (req: Request, res: Response) =
 
 // New endpoint: Save health data entry
 router.post('/api/health-data', (req: Request, res: Response) => {
-  const { id, user_id, conversation_id, type, category, value, quantity, unit, timestamp, notes } = req.body || {};
+  const { id, user_id, profile_id, type, category, value, quantity, unit, timestamp, notes } = req.body || {};
   
-  if (!id || !user_id || !conversation_id || !type || !timestamp) {
-    return res.status(400).json({ error: 'id, user_id, conversation_id, type, and timestamp are required' });
+  if (!id || !user_id || !profile_id || !type || !timestamp) {
+    return res.status(400).json({ error: 'id, user_id, profile_id, type, and timestamp are required' });
   }
   
   try {
@@ -930,12 +956,12 @@ router.post('/api/health-data', (req: Request, res: Response) => {
     
     if (hasQuantity) {
       db.prepare(`
-        INSERT INTO health_data (id, user_id, conversation_id, type, category, value, quantity, unit, timestamp, notes) 
+  INSERT INTO health_data (id, user_id, profile_id, type, category, value, quantity, unit, timestamp, notes) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         user_id,
-        conversation_id,
+  profile_id,
         type,
         category || 'HEALTH_PARAMS',
         value || null,
@@ -947,12 +973,12 @@ router.post('/api/health-data', (req: Request, res: Response) => {
     } else {
       // Fallback for tables without quantity column
       db.prepare(`
-        INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) 
+  INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         user_id,
-        conversation_id,
+  profile_id,
         type,
         category || 'HEALTH_PARAMS',
         value || null,
@@ -1041,17 +1067,16 @@ router.post('/api/health-data/trend', (req: Request, res: Response) => {
 // AI interpret + persist (requires auth). This does not change existing provisional local insert logic on the client;
 // it offers a backend mapping path so the AI output becomes a stored row.
 router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
-  const { message, conversation_id } = req.body || {};
+  const { message, profile_id } = req.body || {};
   if (!message) { logger.warn('Interpret-store missing message'); return res.status(400).json({ error: 'message required' }); }
   const userId = (req as any).user?.id || (req as any).userId;
   logger.debug('Interpret-store userId check', { userId, hasUserId: !!userId, type: typeof userId });
 
-  const conversationId = conversation_id || 'default-conversation';
+  const profileId = profile_id || 'default-profile';
   // Store raw message first
   const msgId = randomUUID();
   const createdAt = Date.now();
-  db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,0)')
-    .run(msgId, conversationId, userId, 'user', String(message), createdAt);
+  insertMessageRecord({ id: msgId, profileId, userId, role: 'user', content: String(message), createdAt, processed: 0 });
   const interpretation = await interpretMessage(String(message));
   const matches = matchParamTargets(String(message), 5);
   if (runtimeDebug.ai) logger.debug('ai.interpretStore.res', { parsed: interpretation.parsed, entry: interpretation.entry, matches });
@@ -1062,7 +1087,7 @@ router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
     return res.status(200).json({ interpretation, stored: null, messageId: msgId, matches });
   }
   try {
-    const stored = persistAiEntry(interpretation.entry, userId, conversationId);
+  const stored = persistAiEntry(interpretation.entry, userId, profileId);
     db.prepare('UPDATE messages SET interpretation_json = ?, processed = 1, stored_record_id = ? WHERE id = ?')
       .run(JSON.stringify(interpretation), stored.id, msgId);
     logger.info('Persisted AI entry', { reqId: (req as any).reqId, storedType: stored.type || stored.name, id: stored.id });
@@ -1076,7 +1101,7 @@ router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
 });
 
 // Helper to map AI entry -> DB rows.
-function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: string, conversationId: string) {
+function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: string, profileId: string) {
   const id = randomUUID();
   const ts = entry.timestamp ?? Date.now();
   const category = entry.category || 'HEALTH_PARAMS';
@@ -1110,8 +1135,8 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
       }
       
       logger.debug('DB insert health_data vital', { vt, value, unit, category, ts });
-      db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(id, userId, conversationId, vt, category, value, unit, ts, null);
+      db.prepare('INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, profileId, vt, category, value, unit, ts, null);
       return { table: 'health_data', id, type: vt, category, value, unit, timestamp: ts };
     }
     case 'param': {
@@ -1121,16 +1146,16 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
       const unit = p.unit || null;
       const notes = p.notes || null;
       logger.debug('DB insert param as health_data', { code: p.param_code, value, unit, category, ts });
-      db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(id, userId, conversationId, p.param_code, category, value, unit, ts, notes);
+      db.prepare('INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, profileId, p.param_code, category, value, unit, ts, notes);
       return { table: 'health_data', id, type: p.param_code, category, value, unit, notes, timestamp: ts };
     }
     case 'note': {
       const noteId = id;
       const noteText = entry.note || '';
       logger.debug('DB insert note', { category, ts });
-      db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(noteId, userId, conversationId, 'note', category, null, null, ts, noteText);
+      db.prepare('INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(noteId, userId, profileId, 'note', category, null, null, ts, noteText);
       return { table: 'health_data', id: noteId, type: 'note', category, notes: noteText, timestamp: ts };
     }
     case 'medication': {
@@ -1142,9 +1167,9 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
       const dosage = dosageParts.join(' '); // e.g., "500 mg"
       let schedule: string | null = null;
       if (m.frequencyPerDay) schedule = `${m.frequencyPerDay}x/day`;
-      logger.debug('DB insert medication', { name: m.name, dosage, schedule, duration: m.durationDays, conversationId });
-      db.prepare('INSERT INTO medications (id, user_id, conversation_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(id, userId, conversationId, m.name, dosage || null, schedule, m.durationDays ?? null, 0, ts);
+      logger.debug('DB insert medication', { name: m.name, dosage, schedule, duration: m.durationDays, profileId });
+      db.prepare('INSERT INTO medications (id, user_id, profile_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, profileId, m.name, dosage || null, schedule, m.durationDays ?? null, 0, ts);
       return { table: 'medications', id, name: m.name, dosage: dosage || null, schedule, durationDays: m.durationDays ?? null, startDate: ts };
     }
     case 'labResult': {
@@ -1159,9 +1184,9 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
     case 'activity': {
       if (!entry.activity || !entry.activity.name) throw new Error('activity.name missing');
       const a = entry.activity;
-      logger.debug('DB insert activity', { name: a.name, distance: a.distance_km, duration: a.duration_minutes, intensity: a.intensity, conversationId });
-      db.prepare('INSERT INTO activities (id, user_id, conversation_id, name, duration_minutes, distance_km, intensity, calories_burned, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?,?)')
-        .run(id, userId, conversationId, a.name, a.duration_minutes ?? null, a.distance_km ?? null, a.intensity ?? null, a.calories_burned ?? null, ts, a.notes ?? null);
+      logger.debug('DB insert activity', { name: a.name, distance: a.distance_km, duration: a.duration_minutes, intensity: a.intensity, profileId });
+      db.prepare('INSERT INTO activities (id, user_id, profile_id, name, duration_minutes, distance_km, intensity, calories_burned, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, profileId, a.name, a.duration_minutes ?? null, a.distance_km ?? null, a.intensity ?? null, a.calories_burned ?? null, ts, a.notes ?? null);
       return { table: 'activities', id, name: a.name, duration_minutes: a.duration_minutes ?? null, distance_km: a.distance_km ?? null, intensity: a.intensity ?? null, calories_burned: a.calories_burned ?? null, timestamp: ts, notes: a.notes ?? null };
     }
     default:
@@ -1177,7 +1202,7 @@ const healthDataSchema = z.object({
   unit: z.string().optional(),
   timestamp: z.number().int().optional(),
   notes: z.string().optional(),
-  conversation_id: z.string().optional(),
+  profile_id: z.string().optional(),
 });
 
 router.post('/api/health', (req: Request, res: Response) => {
@@ -1185,13 +1210,13 @@ router.post('/api/health', (req: Request, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const id = randomUUID();
   const userId = (req as any).userId;
-  const { type, category, value, unit, timestamp, notes, conversation_id } = parsed.data;
+  const { type, category, value, unit, timestamp, notes, profile_id } = parsed.data;
   const ts = timestamp ?? Date.now();
   const cat = category || 'HEALTH_PARAMS';
-  const convId = conversation_id || 'default-conversation';
-  db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(id, userId, convId, type, cat, value || null, unit || null, ts, notes || null);
-  res.status(201).json({ id, type, category: cat, value, unit, timestamp: ts, notes, conversation_id: convId });
+  const profId = profile_id || 'default-profile';
+  db.prepare('INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(id, userId, profId, type, cat, value || null, unit || null, ts, notes || null);
+  res.status(201).json({ id, type, category: cat, value, unit, timestamp: ts, notes, profile_id: profId });
 });
 
 router.get('/api/health', (req: Request, res: Response) => {
@@ -1267,7 +1292,7 @@ const medicationSchema = z.object({
   duration_days: z.number().int().optional(),
   is_forever: z.boolean().optional(),
   start_date: z.number().int().optional(),
-  conversation_id: z.string().optional(),
+  profile_id: z.string().optional(),
 });
 
 router.post('/api/medications', (req: Request, res: Response) => {
@@ -1275,11 +1300,11 @@ router.post('/api/medications', (req: Request, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const userId = (req as any).userId;
   const id = randomUUID();
-  const { name, dosage, schedule, duration_days, is_forever, start_date, conversation_id } = parsed.data;
-  const convId = conversation_id || 'default-conversation';
-  db.prepare('INSERT INTO medications (id, user_id, conversation_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(id, userId, convId, name, dosage || null, schedule || null, duration_days ?? null, is_forever ? 1 : 0, start_date ?? null);
-  res.status(201).json({ id, ...parsed.data, conversation_id: convId });
+  const { name, dosage, schedule, duration_days, is_forever, start_date, profile_id } = parsed.data;
+  const profId = profile_id || 'default-profile';
+  db.prepare('INSERT INTO medications (id, user_id, profile_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(id, userId, profId, name, dosage || null, schedule || null, duration_days ?? null, is_forever ? 1 : 0, start_date ?? null);
+  res.status(201).json({ id, ...parsed.data, profile_id: profId });
 });
 
 router.get('/api/medications', (req: Request, res: Response) => {
@@ -1301,7 +1326,7 @@ router.delete('/api/medications/:id', (req: Request, res: Response) => {
 const reportSchema = z.object({
   id: z.string().optional(),
   user_id: z.string().optional(),
-  conversation_id: z.string().nullable().optional(),
+  profile_id: z.string().nullable().optional(),
   file_path: z.string(),
   file_type: z.string().optional(), // frontend sends 'file_type'
   type: z.string().optional(), // also accept 'type' for compatibility
@@ -1320,7 +1345,7 @@ router.post('/api/reports', (req: Request, res: Response) => {
   }
   const userId = (req as any).user?.id || (req as any).userId;
   const reportId = p.data.id || randomUUID();
-  const { conversation_id, file_path, ai_summary } = p.data;
+  const { profile_id, file_path, ai_summary } = p.data;
   
   // Handle both file_type and type fields
   const fileType = p.data.file_type || p.data.type || 'unknown';
@@ -1341,19 +1366,19 @@ router.post('/api/reports', (req: Request, res: Response) => {
     timestamp = Date.now();
   }
   
-  // conversation_id is required by database, use default if not provided
-  const conversationId = conversation_id || 'default-conversation';
+  // profile_id is required by database, use default if not provided
+  const profileId = profile_id || 'default-profile';
   
   try {
     db.prepare(`INSERT INTO reports 
-      (id, user_id, conversation_id, file_path, file_type, source, ai_summary, created_at, parsed) 
+      (id, user_id, profile_id, file_path, file_type, source, ai_summary, created_at, parsed) 
       VALUES (?,?,?,?,?,?,?,?,?)`)
-      .run(reportId, userId, conversationId, file_path, fileType, source, ai_summary || null, timestamp, 0);
+      .run(reportId, userId, profileId, file_path, fileType, source, ai_summary || null, timestamp, 0);
     
     res.status(201).json({ 
       id: reportId, 
       user_id: userId,
-      conversation_id: conversationId,
+  profile_id: profileId,
       file_path, 
       file_type: fileType, // return as file_type for frontend
       type: fileType, // also include for compatibility
@@ -1476,7 +1501,7 @@ router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
     {
       id: randomUUID(),
       user_id: userId,
-      conversation_id: 'default-conversation',
+  profile_id: 'default-profile',
       type: 'GLUCOSE',
       category: 'HEALTH_PARAMS',
       value: '120',
@@ -1493,12 +1518,12 @@ router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
   // In a real implementation, save the health data entries to the database
   for (const healthData of placeholderHealthData) {
     db.prepare(`
-      INSERT INTO health_data (id, user_id, conversation_id, type, category, value, quantity, unit, timestamp, notes, report_id)
+  INSERT INTO health_data (id, user_id, profile_id, type, category, value, quantity, unit, timestamp, notes, report_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       healthData.id,
       healthData.user_id,
-      healthData.conversation_id,
+  healthData.profile_id,
       healthData.type,
       healthData.category,
       healthData.value,
@@ -1528,7 +1553,7 @@ router.post('/api/reports/upload', upload.single('file'), (req: Request, res: Re
 
     const userId = (req as any).user?.id || (req as any).userId;
     const reportId = randomUUID();
-    const { conversation_id, source, ai_summary } = req.body;
+  const { profile_id, source, ai_summary } = req.body;
     
     // Get file information
     const filePath = req.file.path;
@@ -1536,14 +1561,14 @@ router.post('/api/reports/upload', upload.single('file'), (req: Request, res: Re
     const originalName = req.file.originalname;
     const timestamp = Date.now();
     
-    // conversation_id is required by database, use default if not provided
-    const conversationId = conversation_id || 'default-conversation';
+  // profile_id is required by database, use default if not provided
+  const profileId = profile_id || 'default-profile';
     
     // Insert report record into database
     db.prepare(`INSERT INTO reports 
-      (id, user_id, conversation_id, file_path, file_type, source, ai_summary, created_at, parsed, original_file_name) 
+      (id, user_id, profile_id, file_path, file_type, source, ai_summary, created_at, parsed, original_file_name) 
       VALUES (?,?,?,?,?,?,?,?,?,?)`)
-      .run(reportId, userId, conversationId, filePath, fileType, source || 'upload', ai_summary || null, timestamp, 0, originalName);
+      .run(reportId, userId, profileId, filePath, fileType, source || 'upload', ai_summary || null, timestamp, 0, originalName);
     
     logger.info('File uploaded successfully', { 
       reportId, 
@@ -1556,7 +1581,7 @@ router.post('/api/reports/upload', upload.single('file'), (req: Request, res: Re
     res.status(201).json({ 
       id: reportId, 
       user_id: userId,
-      conversation_id: conversationId,
+  profile_id: profileId,
       file_path: filePath,
       file_type: fileType,
       original_name: originalName,
@@ -1694,15 +1719,15 @@ router.get('/api/messages', (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   
-  const conversationId = req.query.conversation_id;
+  const profileIdFilter = req.query.profile_id;
   const limit = Math.min(Number(req.query.limit || 50), 500);
   
   let query = 'SELECT * FROM messages WHERE sender_id = ?';
   const params: any[] = [userId];
   
-  if (conversationId) {
-    query += ' AND conversation_id = ?';
-    params.push(conversationId);
+  if (profileIdFilter) {
+    query += ' AND profile_id = ?';
+    params.push(profileIdFilter);
   }
   
   query += ' ORDER BY created_at DESC LIMIT ?';
@@ -1733,7 +1758,7 @@ router.post('/api/messages/reprocess-failed', async (req: Request, res: Response
       
       if (interpretation.parsed && interpretation.entry) {
         try {
-          const stored = persistAiEntry(interpretation.entry, userId, msg.conversation_id);
+          const stored = persistAiEntry(interpretation.entry, userId, (msg as any).profile_id);
           db.prepare('UPDATE messages SET interpretation_json = ?, stored_record_id = ? WHERE id = ?')
             .run(JSON.stringify(interpretation), stored.id, msg.id);
           

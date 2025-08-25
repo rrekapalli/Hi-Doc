@@ -17,13 +17,13 @@ class ChatProvider extends ChangeNotifier {
   final AiService _ai = AiService();
   final List<ChatMessage> _messages = [];
   final Set<String> _loading = {};
-  String? _currentConversationId;
+  String? _currentProfileId;
 
-  List<ChatMessage> get messages => _currentConversationId == null 
+  List<ChatMessage> get messages => _currentProfileId == null 
     ? List.unmodifiable(_messages)
-    : List.unmodifiable(_messages.where((m) => m.conversationId == _currentConversationId).toList());
+    : List.unmodifiable(_messages.where((m) => m.profileId == _currentProfileId).toList());
 
-  String? get currentConversationId => _currentConversationId;
+  String? get currentProfileId => _currentProfileId;
 
   ChatProvider({required this.db, this.authService});
 
@@ -33,15 +33,15 @@ class ChatProvider extends ChangeNotifier {
 
   bool isLoading(String id) => _loading.contains(id);
 
-  void setCurrentConversation(String conversationId) {
-    _currentConversationId = conversationId;
+  void setCurrentProfile(String profileId) {
+    _currentProfileId = profileId;
     notifyListeners();
   }
 
   Future<void> sendMessage(String text) async {
-    if (_currentConversationId == null) {
+    if (_currentProfileId == null) {
       if (kDebugMode) {
-        debugPrint('Error: No conversation selected');
+        debugPrint('Error: No profile selected');
       }
       return;
     }
@@ -57,7 +57,7 @@ class ChatProvider extends ChangeNotifier {
           id: id, 
           text: text, 
           isUser: true, 
-          conversationId: _currentConversationId!,
+          profileId: _currentProfileId!,
           timestamp: DateTime.now()));
       notifyListeners();
     } catch (e) {
@@ -77,7 +77,7 @@ class ChatProvider extends ChangeNotifier {
 
     try {
       final token = await authService?.getIdToken();
-      final aiResult = await _ai.interpretAndStore(text, bearerToken: token, conversationId: _currentConversationId);
+  final aiResult = await _ai.interpretAndStore(text, bearerToken: token, profileId: _currentProfileId);
 
       if (aiResult != null && aiResult.entry != null) {
         if (kDebugMode) {
@@ -89,7 +89,7 @@ class ChatProvider extends ChangeNotifier {
               id: '${messageId}_ai',
               text: aiResult.reply ?? 'Health data recorded successfully',
               isUser: false,
-              conversationId: _currentConversationId!,
+              profileId: _currentProfileId!,
               timestamp: DateTime.now(),
               parsedEntry: aiResult.entry,
               aiRefined: true,
@@ -109,7 +109,7 @@ class ChatProvider extends ChangeNotifier {
             id: '${messageId}_trend_prompt',
             text: 'Would you like to see your ${vitalType?.toLowerCase()} trend?',
             isUser: false,
-            conversationId: _currentConversationId!,
+            profileId: _currentProfileId!,
             timestamp: DateTime.now(),
             showTrendButtons: true,
             trendType: vitalType,
@@ -121,7 +121,7 @@ class ChatProvider extends ChangeNotifier {
           id: '${messageId}_ai',
           text: aiResult?.reply ?? 'I understand. Let me know if you have any health data to record.',
           isUser: false,
-          conversationId: _currentConversationId!,
+          profileId: _currentProfileId!,
           timestamp: DateTime.now(),
         ));
       }
@@ -134,7 +134,7 @@ class ChatProvider extends ChangeNotifier {
         id: '${messageId}_ai',
         text: 'Sorry, I had trouble processing that message. Please try again.',
         isUser: false,
-        conversationId: _currentConversationId!,
+  profileId: _currentProfileId!,
         timestamp: DateTime.now(),
         parseFailed: true,
         aiErrorReason: e.toString(),
@@ -145,13 +145,10 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> loadMessages([String? conversationId]) async {
-    // If no conversation ID provided, use the current one
-    final targetConversationId = conversationId ?? _currentConversationId;
-    if (targetConversationId == null) {
-      if (kDebugMode) {
-        debugPrint('No conversation ID provided for loading messages');
-      }
+  Future<void> loadMessages([String? profileId]) async {
+  final targetProfileId = profileId ?? _currentProfileId;
+    if (targetProfileId == null) {
+      if (kDebugMode) debugPrint('No profile ID provided for loading messages');
       return;
     }
     
@@ -165,15 +162,15 @@ class ChatProvider extends ChangeNotifier {
 
       final response = await http.get(
           Uri.parse(
-              '${AppConfig.backendBaseUrl}/api/messages?conversation_id=$targetConversationId&limit=100'),
+              '${AppConfig.backendBaseUrl}/api/messages?profile_id=$targetProfileId&limit=100'),
           headers: headers);
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
         final items = json['items'] as List;
 
-        // Clear existing messages for this conversation
-        _messages.removeWhere((msg) => msg.conversationId == targetConversationId);
+  // Clear existing messages for this profile
+  _messages.removeWhere((msg) => msg.profileId == targetProfileId);
 
         // Batch process all messages before notifying listeners
         final newMessages = <ChatMessage>[];
@@ -185,8 +182,8 @@ class ChatProvider extends ChangeNotifier {
               DateTime.now().microsecondsSinceEpoch.toString();
           final processed = item['processed'] as int? ?? 0;
           final interpretationJson = item['interpretation_json'] as String?;
-          // Get conversation_id from backend data, fallback to targetConversationId
-          final msgConversationId = item['conversation_id'] as String? ?? targetConversationId;
+          // Get profile_id from backend data (fallback legacy key)
+          final msgConversationId = item['profile_id'] as String? ?? item['conversation_id'] as String? ?? targetProfileId; // legacy fallback
 
           if (content != null && content.isNotEmpty) {
             if (role == 'user') {
@@ -199,7 +196,7 @@ class ChatProvider extends ChangeNotifier {
                 id: messageId,
                 text: content,
                 isUser: true,
-                conversationId: msgConversationId,
+                profileId: msgConversationId,
                 timestamp: timestamp,
               ));
 
@@ -215,7 +212,7 @@ class ChatProvider extends ChangeNotifier {
                       id: '${messageId}_ai',
                       text: reply,
                       isUser: false,
-                      conversationId: msgConversationId,
+                      profileId: msgConversationId,
                       timestamp: timestamp.add(const Duration(seconds: 1)),
                       aiRefined: parsed,
                       parseSource: parsed ? 'ai' : null,
@@ -235,7 +232,7 @@ class ChatProvider extends ChangeNotifier {
         _messages.addAll(newMessages);
         
         if (kDebugMode) {
-          debugPrint('Successfully loaded ${_messages.where((m) => m.conversationId == targetConversationId).length} messages from backend for conversation: $targetConversationId');
+          debugPrint('Successfully loaded ${_messages.where((m) => m.profileId == targetProfileId).length} messages from backend for profile: $targetProfileId');
         }
         notifyListeners();
       } else {
@@ -261,14 +258,14 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> clearAllMessages() async {
     try {
-      if (_currentConversationId != null) {
-        // Clear messages for current conversation only
-        _messages.removeWhere((msg) => msg.conversationId == _currentConversationId);
+  if (_currentProfileId != null) {
+    // Clear messages for current profile only
+  _messages.removeWhere((msg) => msg.profileId == _currentProfileId);
         if (kDebugMode) {
-          debugPrint('Successfully cleared messages for conversation: $_currentConversationId');
+          debugPrint('Successfully cleared messages for profile: $_currentProfileId');
         }
       } else {
-        // Clear all messages if no specific conversation
+  // Clear all messages if no specific profile
         _messages.clear();
         if (kDebugMode) {
           debugPrint('Successfully cleared all local messages');
@@ -284,14 +281,14 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> handleTrendResponse(
       String messageId, bool showTrend, String type, String category) async {
-    if (_currentConversationId == null) return;
+  if (_currentProfileId == null) return;
     
     if (!showTrend) {
       _messages.add(ChatMessage(
         id: '${messageId}_trend_no',
         text: 'Understood. Let me know if you need anything else!',
         isUser: false,
-        conversationId: _currentConversationId!,
+  profileId: _currentProfileId!,
         timestamp: DateTime.now(),
       ));
       notifyListeners();
@@ -315,7 +312,7 @@ class ChatProvider extends ChangeNotifier {
           id: '${messageId}_trend_analysis',
           text: resp.body,
           isUser: false,
-          conversationId: _currentConversationId!,
+          profileId: _currentProfileId!,
           timestamp: DateTime.now(),
         ));
       } else {
@@ -323,7 +320,7 @@ class ChatProvider extends ChangeNotifier {
           id: '${messageId}_trend_error',
           text: 'Sorry, I had trouble generating the trend analysis.',
           isUser: false,
-          conversationId: _currentConversationId!,
+          profileId: _currentProfileId!,
           timestamp: DateTime.now(),
           parseFailed: true,
         ));
@@ -333,7 +330,7 @@ class ChatProvider extends ChangeNotifier {
         id: '${messageId}_trend_error',
         text: 'Sorry, there was an error analyzing the trend.',
         isUser: false,
-        conversationId: _currentConversationId!,
+  profileId: _currentProfileId!,
         timestamp: DateTime.now(),
         parseFailed: true,
         aiErrorReason: e.toString(),

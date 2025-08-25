@@ -23,7 +23,7 @@ app.use(express.json({ limit: '1mb' }));
 
 // Import middleware and routes
 import { authMiddleware } from './middleware/auth.js';
-import conversationsRouter from './routes/conversations.js';
+import profilesRouter from './routes/profiles.js';
 
 logger.info('Logger initialized', { level: logger.level });
 migrate();
@@ -49,7 +49,7 @@ app.get('/healthz', (_req: Request, res: Response) => res.json({ ok: true }));
 
 // Add middleware and routes
 app.use(authMiddleware);
-app.use(conversationsRouter);
+app.use(profilesRouter);
 app.use(router);
 
 const BASE_PORT = Number(process.env.PORT || 4000);

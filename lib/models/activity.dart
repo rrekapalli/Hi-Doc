@@ -1,7 +1,7 @@
 class Activity {
   final String id;
   final String userId;
-  final String conversationId;
+  final String profileId;
   final String name;
   final int? durationMinutes;
   final double? distanceKm;
@@ -13,7 +13,7 @@ class Activity {
   Activity({
     required this.id,
     required this.userId,
-    required this.conversationId,
+  required this.profileId,
     required this.name,
     required this.timestamp,
     this.durationMinutes,
@@ -51,7 +51,7 @@ class Activity {
     return Activity(
       id: json['id'] as String,
       userId: json['user_id'] as String? ?? 'unknown-user',
-      conversationId: json['conversation_id'] as String? ?? 'default',
+  profileId: json['profile_id'] as String? ?? json['conversation_id'] as String? ?? 'default-profile',
       name: json['name'] as String? ?? 'Activity',
       durationMinutes: json['duration_minutes'] is int ? json['duration_minutes'] as int : int.tryParse('${json['duration_minutes']}'),
       distanceKm: _toDouble(json['distance_km']),
@@ -65,7 +65,7 @@ class Activity {
   Map<String, dynamic> toJson() => {
         'id': id,
         'user_id': userId,
-        'conversation_id': conversationId,
+  'profile_id': profileId,
         'name': name,
         'duration_minutes': durationMinutes,
         'distance_km': distanceKm,
@@ -78,7 +78,7 @@ class Activity {
   Activity copyWith({
     String? id,
     String? userId,
-    String? conversationId,
+  String? profileId,
     String? name,
     int? durationMinutes,
     double? distanceKm,
@@ -89,7 +89,7 @@ class Activity {
   }) => Activity(
         id: id ?? this.id,
         userId: userId ?? this.userId,
-        conversationId: conversationId ?? this.conversationId,
+  profileId: profileId ?? this.profileId,
         name: name ?? this.name,
         durationMinutes: durationMinutes ?? this.durationMinutes,
         distanceKm: distanceKm ?? this.distanceKm,

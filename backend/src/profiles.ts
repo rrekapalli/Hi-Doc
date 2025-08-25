@@ -36,7 +36,7 @@ export function getProfiles(userId: string) {
   return db.prepare(`
     WITH latest_messages AS (
       SELECT 
-        m.*,
+        m.*, 
         ROW_NUMBER() OVER (PARTITION BY m.profile_id ORDER BY m.created_at DESC) as rn
       FROM messages m
       JOIN profile_members pm ON m.profile_id = pm.profile_id
@@ -103,25 +103,71 @@ export function getMessages(profileId: string, userId: string, limit = 50, befor
 export function sendMessage(message: Omit<Message, 'id' | 'created_at'>) {
   const now = Date.now();
   const messageId = `msg_${now}`;
-  
-  db.prepare(`
-    INSERT INTO messages (
-      id, profile_id, sender_id, role, content, 
-      content_type, created_at, interpretation_json,
-      processed, stored_record_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run([
-    messageId,
-    message.profile_id,
-    message.sender_id,
-    message.role,
-    message.content,
-    message.content_type,
-    now,
-    message.interpretation_json,
-    message.processed,
-    message.stored_record_id
-  ]);
+  // Legacy compatibility: some DBs may still have NOT NULL conversation_id
+  // Detect columns once
+  const cols = db.prepare('PRAGMA table_info(messages)').all() as any[];
+  const hasConversationId = cols.some(c => c.name === 'conversation_id');
+  const hasProfileId = cols.some(c => c.name === 'profile_id');
+
+  if (hasConversationId && !hasProfileId) {
+    db.prepare(`
+      INSERT INTO messages (
+        id, conversation_id, sender_id, role, content,
+        content_type, created_at, interpretation_json,
+        processed, stored_record_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run([
+      messageId,
+      message.profile_id,
+      message.sender_id,
+      message.role,
+      message.content,
+      message.content_type,
+      now,
+      message.interpretation_json,
+      message.processed,
+      message.stored_record_id
+    ]);
+  } else if (hasConversationId && hasProfileId) {
+    db.prepare(`
+      INSERT INTO messages (
+        id, conversation_id, profile_id, sender_id, role, content,
+        content_type, created_at, interpretation_json,
+        processed, stored_record_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run([
+      messageId,
+      message.profile_id,
+      message.profile_id,
+      message.sender_id,
+      message.role,
+      message.content,
+      message.content_type,
+      now,
+      message.interpretation_json,
+      message.processed,
+      message.stored_record_id
+    ]);
+  } else {
+    db.prepare(`
+      INSERT INTO messages (
+        id, profile_id, sender_id, role, content,
+        content_type, created_at, interpretation_json,
+        processed, stored_record_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run([
+      messageId,
+      message.profile_id,
+      message.sender_id,
+      message.role,
+      message.content,
+      message.content_type,
+      now,
+      message.interpretation_json,
+      message.processed,
+      message.stored_record_id
+    ]);
+  }
   
   // Update profile's updated_at timestamp
   db.prepare(`

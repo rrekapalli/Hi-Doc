@@ -12,14 +12,14 @@ class ActivitiesProvider with ChangeNotifier {
   String? _error;
 
   ActivitiesProvider({required this.chatProvider}) {
-    // Listen for conversation changes to auto-filter.
-    chatProvider.addListener(_onConversationChanged);
+  // Listen for profile changes to auto-filter.
+  chatProvider.addListener(_onProfileChanged);
   }
 
   List<Activity> get activities {
-    final cid = chatProvider.currentConversationId;
-    if (cid == null) return _all;
-    return _all.where((a) => a.conversationId == cid).toList();
+  final pid = chatProvider.currentProfileId;
+  if (pid == null) return _all;
+  return _all.where((a) => a.profileId == pid).toList();
   }
   bool get isLoading => _loading;
   String? get error => _error;
@@ -39,14 +39,14 @@ class ActivitiesProvider with ChangeNotifier {
     }
   }
 
-  void _onConversationChanged() {
+  void _onProfileChanged() {
     // Just notify listeners so UI re-filters list
     notifyListeners();
   }
 
   @override
   void dispose() {
-    chatProvider.removeListener(_onConversationChanged);
+  chatProvider.removeListener(_onProfileChanged);
     super.dispose();
   }
 }
