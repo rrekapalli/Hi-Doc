@@ -1041,17 +1041,17 @@ router.post('/api/health-data/trend', (req: Request, res: Response) => {
 // AI interpret + persist (requires auth). This does not change existing provisional local insert logic on the client;
 // it offers a backend mapping path so the AI output becomes a stored row.
 router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
-  const { message } = req.body || {};
+  const { message, conversation_id } = req.body || {};
   if (!message) { logger.warn('Interpret-store missing message'); return res.status(400).json({ error: 'message required' }); }
   const userId = (req as any).user?.id || (req as any).userId;
   logger.debug('Interpret-store userId check', { userId, hasUserId: !!userId, type: typeof userId });
 
-  
+  const conversationId = conversation_id || 'default-conversation';
   // Store raw message first
   const msgId = randomUUID();
   const createdAt = Date.now();
   db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,0)')
-    .run(msgId, 'default-conversation', userId, 'user', String(message), createdAt);
+    .run(msgId, conversationId, userId, 'user', String(message), createdAt);
   const interpretation = await interpretMessage(String(message));
   const matches = matchParamTargets(String(message), 5);
   if (runtimeDebug.ai) logger.debug('ai.interpretStore.res', { parsed: interpretation.parsed, entry: interpretation.entry, matches });
@@ -1062,7 +1062,7 @@ router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
     return res.status(200).json({ interpretation, stored: null, messageId: msgId, matches });
   }
   try {
-    const stored = persistAiEntry(interpretation.entry, userId, 'default-conversation');
+    const stored = persistAiEntry(interpretation.entry, userId, conversationId);
     db.prepare('UPDATE messages SET interpretation_json = ?, processed = 1, stored_record_id = ? WHERE id = ?')
       .run(JSON.stringify(interpretation), stored.id, msgId);
     logger.info('Persisted AI entry', { reqId: (req as any).reqId, storedType: stored.type || stored.name, id: stored.id });
@@ -1661,6 +1661,7 @@ const paramTargetSchema = z.object({
   target_min: z.number().nullable().optional(),
   target_max: z.number().nullable().optional(),
   preferred_unit: z.string().optional(),
+
   description: z.string().optional(),
 });
 

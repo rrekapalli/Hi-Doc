@@ -31,8 +31,15 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final chatProvider = context.read<ChatProvider>();
-      chatProvider.setCurrentConversation(widget.conversationId);
-      chatProvider.loadMessages(widget.conversationId);
+      if (chatProvider.currentConversationId != widget.conversationId) {
+        chatProvider.setCurrentConversation(widget.conversationId);
+        chatProvider.loadMessages(widget.conversationId);
+      } else {
+        // If same conversation, ensure messages are loaded (only if empty)
+        if (chatProvider.messages.isEmpty) {
+          chatProvider.loadMessages(widget.conversationId);
+        }
+      }
     });
   }
 

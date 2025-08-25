@@ -107,11 +107,18 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final wide = MediaQuery.of(context).size.width >= 900;
     
   return Scaffold(
       appBar: HiDocAppBar(
         pageTitle: 'Messages',
         actions: [
+          if (wide)
+            IconButton(
+              icon: const Icon(Icons.person_add),
+              tooltip: 'New conversation',
+              onPressed: _createNewConversation,
+            ),
           IconButton(
             icon: Icon(_isSearching ? Icons.search_off : Icons.search),
             onPressed: () {
@@ -136,7 +143,6 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       ),
       body: Column(
         children: [
-          // Search field
           if (_isSearching)
             Container(
               padding: const EdgeInsets.all(16),
@@ -158,19 +164,15 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                 ),
               ),
             ),
-          
-          // Responsive: on wide screens show split view (30/70)
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final wide = constraints.maxWidth >= 900; // web/desktop threshold
-                if (!wide) {
+                final wideLayout = constraints.maxWidth >= 900;
+                if (!wideLayout) {
                   return _isSearching ? _buildSearchResults() : _buildConversationsList();
                 }
-
                 return Row(
                   children: [
-                    // Left pane: conversations list (30%)
                     SizedBox(
                       width: constraints.maxWidth * 0.30,
                       child: DecoratedBox(
@@ -183,10 +185,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                         child: _buildSplitConversationsList(),
                       ),
                     ),
-                    // Right pane: conversation detail (70%)
-                    Expanded(
-                      child: _buildSplitDetailPane(),
-                    ),
+                    Expanded(child: _buildSplitDetailPane()),
                   ],
                 );
               },
@@ -194,7 +193,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: wide ? null : FloatingActionButton(
         onPressed: _createNewConversation,
         child: const Icon(Icons.person_add),
       ),
@@ -327,17 +326,20 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     return InkWell(
       onTap: () {
         final wide = MediaQuery.of(context).size.width >= 900;
+        final id = conversation['id'] as String;
         if (wide) {
-          final id = conversation['id'] as String;
-          setState(() {
-            _selectedId = id;
-          });
-          // In split view, the detail pane will load messages using its own initState
+          setState(() { _selectedId = id; });
+          // Safe to update provider directly (tap happens after build phase)
+          final chat = context.read<ChatProvider>();
+          if (chat.currentConversationId != id) {
+            chat.setCurrentConversation(id);
+            chat.loadMessages(id);
+          }
         } else {
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => ConversationDetailScreen(
-                conversationId: conversation['id'] as String,
+                conversationId: id,
                 title: _getConversationTitle(conversation),
                 conversationType: conversation['type'] as String? ?? 'direct',
               ),
@@ -455,17 +457,18 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         _allConversations = conversations;
         if (!_isSearching) _filteredConversations = conversations;
 
-        // Default selection: visible first item (sorted)
         if (!_initialSelectionScheduled && _selectedId == null && conversations.isNotEmpty) {
           _initialSelectionScheduled = true;
           final sorted = _sorted(conversations);
           final initialId = sorted.first['id'] as String;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            setState(() {
-              _selectedId = initialId;
-            });
-            // The right pane's ConversationDetailScreen will handle loading
+            setState(() { _selectedId = initialId; });
+            final chat = context.read<ChatProvider>();
+            if (chat.currentConversationId != initialId) {
+              chat.setCurrentConversation(initialId);
+              chat.loadMessages(initialId);
+            }
           });
         }
         if (conversations.isEmpty) {

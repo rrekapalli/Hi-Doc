@@ -76,9 +76,8 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Get bearer token for authentication
       final token = await authService?.getIdToken();
-      final aiResult = await _ai.interpretAndStore(text, bearerToken: token);
+      final aiResult = await _ai.interpretAndStore(text, bearerToken: token, conversationId: _currentConversationId);
 
       if (aiResult != null && aiResult.entry != null) {
         if (kDebugMode) {
