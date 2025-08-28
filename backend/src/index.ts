@@ -18,6 +18,8 @@ if (!process.env.OPENAI_API_KEY) {
 logger.info('Starting Hi-Doc backend service');
 
 const app = express();
+// Disable ETag to avoid 304 confusing the client on dynamic JSON lists
+app.set('etag', false);
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'app_theme.dart';
+import '../screens/data_screen.dart';
 import '../../providers/selected_profile_provider.dart';
 import 'profile_switch_dialog.dart';
 
@@ -46,6 +47,16 @@ class HiDocAppBar extends StatelessWidget implements PreferredSizeWidget {
         ),
       ),
       actions: [
+        // Data explorer shortcut now in top bar
+        IconButton(
+          tooltip: 'Data',
+          icon: const Icon(Icons.table_chart_outlined),
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const DataScreen()),
+            );
+          },
+        ),
         Builder(builder: (context) {
           final selectedProfileId = context.watch<SelectedProfileProvider?>()?.selectedProfileId;
           return IconButton(

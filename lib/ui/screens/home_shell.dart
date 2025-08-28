@@ -4,7 +4,8 @@ import './medications_screen.dart';
 import 'reports_screen.dart';
 import 'activities_screen.dart';
 import 'debug_entries_screen.dart';
-import 'data_screen.dart';
+import 'data_screen.dart'; // still accessible via top bar shortcut
+import 'trends_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -16,11 +17,11 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   // Settings removed from bottom navigation; accessible via top-right user icon in each screen.
   static const List<Widget> _pages = [
-  ProfilesScreen(), 
-    MedicationsScreen(), 
-    ReportsScreen(), 
-    ActivitiesScreen(), 
-    DataScreen()
+    ProfilesScreen(),
+    MedicationsScreen(),
+    ReportsScreen(),
+    ActivitiesScreen(),
+    TrendsScreen(),
   ];
 
   @override
@@ -53,7 +54,7 @@ class _HomeShellState extends State<HomeShell> {
             NavigationDestination(icon: Icon(Icons.medication), label: 'Medications'),
             NavigationDestination(icon: Icon(Icons.description_outlined), label: 'Reports'),
             NavigationDestination(icon: Icon(Icons.local_activity_outlined), label: 'Activities'),
-            NavigationDestination(icon: Icon(Icons.table_chart_outlined), label: 'Data'),
+            NavigationDestination(icon: Icon(Icons.show_chart), label: 'Trends'),
           ],
         ),
       ),
