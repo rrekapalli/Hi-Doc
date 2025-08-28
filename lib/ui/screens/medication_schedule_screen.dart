@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../debug/dev_title.dart';
 import '../../services/auth_service.dart';
 import '../../services/database_service.dart';
 
@@ -123,138 +124,9 @@ class _MedicationScheduleScreenState extends State<MedicationScheduleScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Schedule Medication'),
+        title: devTitle(context, 'medication_schedule_screen.dart', const Text('Schedule Medication')),
         actions: [
           TextButton(
-            onPressed: _times.isEmpty ? null : _saveSchedule,
-            child: const Text('Save'),
+            // Deprecated: medication_schedule_screen.dart removed in favor of medication_wizard_screen.dart
+            // File intentionally left nearly empty to avoid broken imports during transition. Will be deleted.
           ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.medication['name'] as String,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  if (widget.medication['dosage'] != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      widget.medication['dosage'] as String,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                  if (widget.medication['schedule'] != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      widget.medication['schedule'] as String,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Text(
-                'Reminder Times',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const Spacer(),
-              FilledButton.icon(
-                onPressed: _addTime,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add Time'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          if (_times.isEmpty)
-            const Center(
-              child: Text('No times set yet. Tap "Add Time" to set a reminder.'),
-            )
-          else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _times.length,
-              itemBuilder: (context, index) {
-                final time = _times[index];
-                return ListTile(
-                  leading: const Icon(Icons.access_time),
-                  title: Text(time.format(context)),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () {
-                      setState(() {
-                        _times.removeAt(index);
-                      });
-                    },
-                  ),
-                );
-              },
-            ),
-          const SizedBox(height: 24),
-          Text(
-            'Repeat',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment<bool>(
-                value: true,
-                label: Text('Daily'),
-              ),
-              ButtonSegment<bool>(
-                value: false,
-                label: Text('Weekly'),
-              ),
-            ],
-            selected: {_isDaily},
-            onSelectionChanged: (Set<bool> selected) {
-              setState(() {
-                _isDaily = selected.first;
-              });
-            },
-          ),
-          if (!_isDaily) ...[
-            const SizedBox(height: 16),
-            Text(
-              'Select Days',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: _daysOfWeek
-                  .asMap()
-                  .entries
-                  .map(
-                    (e) => FilterChip(
-                      label: Text(_daysOfWeek[e.key]),
-                      selected: _selectedDays[e.key],
-                      onSelected: (bool selected) {
-                        setState(() {
-                          _selectedDays[e.key] = selected;
-                        });
-                      },
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}

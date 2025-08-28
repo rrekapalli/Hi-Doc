@@ -33,15 +33,42 @@
   </script>
 </head>
 <body>
-  <script src='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.min.mjs' type='module'></script>
-  <script type='module'>
-  var { pdfjsLib } = globalThis;
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.worker.mjs';
-
-  var pdfRenderOptions = {
-    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/cmaps/',
-    cMapPacked: true,
-  }
+  <!-- pdfx plugin requirement: include pdf.js before main.dart.js. Try common asset paths. -->
+  <!-- Primary path (after running: flutter pub run pdfx:install_web) -->
+  <script src="assets/packages/pdfx/assets/pdfjs/pdf.js"></script>
+  <!-- Alternate path with build/ subfolder (some package versions) -->
+  <script>
+    if (typeof pdfjsLib === 'undefined') {
+      var s = document.createElement('script');
+      s.src = 'assets/packages/pdfx/assets/pdfjs/build/pdf.js';
+      document.head.appendChild(s);
+    }
+  </script>
+  <!-- Fallback stub to avoid early assertion if asset 404s (will be overwritten once real pdf.js loads) -->
+  <script>
+    if (typeof pdfjsLib === 'undefined') { window.pdfjsLib = { GlobalWorkerOptions: { } }; }
+  </script>
+  <script>
+    (function waitForPdfJs(attempt){
+      if (typeof pdfjsLib !== 'undefined') {
+        var workerCandidates = [
+          'assets/packages/pdfx/assets/pdfjs/pdf.worker.js',
+          'assets/packages/pdfx/assets/pdfjs/build/pdf.worker.js'
+        ];
+        for (var i=0;i<workerCandidates.length;i++) {
+          if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = workerCandidates[i];
+          }
+        }
+        console.log('[pdfx] pdfjsLib loaded, worker set to', pdfjsLib.GlobalWorkerOptions.workerSrc);
+        return;
+      }
+      if (attempt < 20) { // retry up to ~1s (20 * 50ms)
+        setTimeout(function(){ waitForPdfJs(attempt+1); }, 50);
+      } else {
+        console.error('[pdfx] pdfjsLib still undefined after attempts. Verify assets copied: run "flutter pub run pdfx:install_web"');
+      }
+    })(0);
   </script>
   <!-- Load Flutter app -->
   <script src="main.dart.js" type="application/javascript"></script>

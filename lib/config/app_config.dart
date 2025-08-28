@@ -16,4 +16,15 @@ class AppConfig {
   // Authentication paths
   static const msTokenExchangePath = '/api/auth/microsoft/exchange';
   static Uri microsoftExchangeUri() => Uri.parse('$backendBaseUrl$msTokenExchangePath');
+
+  // Local LLaMA / Ollama integration (stub values; override via dart-define if needed)
+  static String ollamaBaseUrl = const String.fromEnvironment(
+    'OLLAMA_BASE_URL',
+    defaultValue: 'http://localhost:11434',
+  );
+
+  static String ollamaModel = const String.fromEnvironment(
+    'OLLAMA_MODEL',
+    defaultValue: 'llama2',
+  );
 }

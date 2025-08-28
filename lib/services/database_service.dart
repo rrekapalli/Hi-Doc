@@ -5,803 +5,200 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:uuid/uuid.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
+
 import '../config/app_config.dart';
 import '../models/health_entry.dart';
 import '../models/message.dart';
-import '../models/profile.dart';
-import 'notification_service.dart';
 import '../services/auth_service.dart';
+import 'notification_service.dart';
 
+/// Central persistence layer (SQLite local + backend HTTP helpers)
+/// Clean implementation (legacy in‑memory paths removed).
 class DatabaseService {
   static const _dbName = 'hi_doc.db';
-  static const _dbVersion = 7; // bump for medications table isDeleted flag
-  Database? _db;
-  bool _inMemory = false; // Web fallback
-  bool _initialized = false;
+  static const _dbVersion = 8; // bump when altering schema
   final NotificationService _notificationService;
   final _backendBaseUrl = AppConfig.backendBaseUrl;
+  Database? _db;
+  bool _initialized = false;
 
   DatabaseService({required NotificationService notificationService}) : _notificationService = notificationService;
 
-  // Fetch all profiles for the current user
-  Future<List<Map<String, dynamic>>> getProfiles() async {
-    final headers = await _getAuthHeaders();
-    final response = await http.get(
-      Uri.parse('$_backendBaseUrl/api/profiles'),
-      headers: headers,
-    );
-
-    if (response.statusCode == 200) {
-      return List<Map<String, dynamic>>.from(json.decode(response.body));
-    } else {
-      throw Exception('Failed to load profiles');
-    }
-  }
-
-  // Fetch messages for a specific profile
-  Future<List<Map<String, dynamic>>> getProfileMessages(String profileId) async {
-    final headers = await _getAuthHeaders();
-    final response = await http.get(
-      Uri.parse('$_backendBaseUrl/api/profiles/$profileId/messages'),
-      headers: headers,
-    );
-
-    if (response.statusCode == 200) {
-      return List<Map<String, dynamic>>.from(json.decode(response.body));
-    } else {
-      throw Exception('Failed to load messages');
-    }
-  }
-
-  // Send a new message to a profile
-  Future<String> sendProfileMessage({
-    required String profileId,
-    required String content,
-    String contentType = 'text',
-  }) async {
-    final headers = await _getAuthHeaders();
-    headers['Content-Type'] = 'application/json';
-    final response = await http.post(
-      Uri.parse('$_backendBaseUrl/api/profiles/$profileId/messages'),
-      headers: headers,
-      body: json.encode({
-        'content': content,
-        'contentType': contentType,
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return data['id'] as String;
-    } else {
-    throw Exception('Failed to send profile message');
-    }
-  }
-
-  // Mark profile as read
-  Future<void> markProfileAsRead(String profileId) async {
-    final headers = await _getAuthHeaders();
-    final response = await http.post(
-    Uri.parse('$_backendBaseUrl/api/profiles/$profileId/read'),
-      headers: headers,
-    );
-
-    if (response.statusCode != 200) {
-    throw Exception('Failed to mark profile as read');
-    }
-  }
-
-  // Create a new profile
-  Future<String> createProfile({
-    String? title,
-    required String type,
-    required List<String> memberIds,
-  }) async {
-    final headers = await _getAuthHeaders();
-    headers['Content-Type'] = 'application/json';
-    final response = await http.post(
-    Uri.parse('$_backendBaseUrl/api/profiles'),
-      headers: headers,
-      body: json.encode({
-        'title': title,
-        'type': type,
-        'memberIds': memberIds,
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return data['id'] as String;
-    } else {
-  throw Exception('Failed to create profile');
-    }
-  }
-
-  // Search for users to add to a new profile chat (direct or group)
-  Future<List<Map<String, dynamic>>> searchUsers({
-    String? query,
-    int limit = 20,
-  }) async {
-    final headers = await _getAuthHeaders();
-    
-    final uri = Uri.parse('$_backendBaseUrl/api/users/search').replace(
-      queryParameters: {
-        if (query != null && query.isNotEmpty) 'query': query,
-        'limit': limit.toString(),
-      },
-    );
-    
-    final response = await http.get(uri, headers: headers);
-
-    if (response.statusCode == 200) {
-      return List<Map<String, dynamic>>.from(json.decode(response.body));
-    } else {
-      throw Exception('Failed to search users');
-    }
-  }
-
-  // Create/register external contact as user
-  Future<String> createExternalUser({
-    required String name,
-    String? email,
-    String? phone,
-  }) async {
-    final headers = await _getAuthHeaders();
-    headers['Content-Type'] = 'application/json';
-    
-    // Use email or phone as the identifier, with phone as fallback
-    final identifier = email ?? '$phone@phone.local';
-    
-    final response = await http.post(
-      Uri.parse('$_backendBaseUrl/api/users/external'),
-      headers: headers,
-      body: json.encode({
-        'name': name,
-        'email': identifier,
-        'phone': phone,
-        'isExternal': true,
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return data['id'] as String;
-    } else {
-      throw Exception('Failed to create external user');
-    }
-  }
-
-  // In-memory stores for web fallback
-  final List<HealthEntry> _entries = [];
-  final List<Message> _messages = [];
-  final List<Map<String, dynamic>> _medications = [];
-  final List<Map<String, dynamic>> _reports = [];
-  final List<Map<String, dynamic>> _reminders = [];
-
-  Database _ensure() {
-    if (!_initialized) {
-      throw StateError('Database not initialized. Did you call init()?');
-    }
-    if (_db == null) {
-      throw StateError('Database is null after initialization');
-    }
-    if (!_db!.isOpen) {
-      throw StateError('Database is not open');
-    }
-    return _db!;
-  }
-
-  Map<String, dynamic> _parseMap(String s) {
-    final decoded = jsonDecode(s);
-    return Map<String, dynamic>.from(decoded as Map);
-  }
-
-  String _roleToString(MessageRole role) {
-    switch (role) {
-      case MessageRole.user:
-        return 'user';
-      case MessageRole.assistant:
-        return 'assistant';
-      case MessageRole.system:
-        return 'system';
-    }
-  }
-
-  MessageRole _roleFromString(String role) {
-    switch (role.toLowerCase()) {
-      case 'user':
-        return MessageRole.user;
-      case 'assistant':
-      case 'ai':
-      case 'bot':
-        return MessageRole.assistant;
-      case 'system':
-        return MessageRole.system;
-      default:
-        return MessageRole.assistant;
-    }
-  }
-
+  // ---- HTTP helpers ----
   Future<Map<String, String>> _getAuthHeaders() async {
-    final authService = AuthService();
-    final token = await authService.getIdToken();
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token'
-    };
+    final token = await AuthService().getIdToken();
+    return {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'};
   }
 
-  Future<void> init() async {
-    if (_initialized) {
-      if (kDebugMode) {
-        debugPrint('Database already initialized');
-      }
-      return;
-    }
+  Future<List<Map<String, dynamic>>> getProfiles() async {
+    final r = await http.get(Uri.parse('$_backendBaseUrl/api/profiles'), headers: await _getAuthHeaders());
+    if (r.statusCode != 200) throw Exception('Failed to load profiles');
+    return List<Map<String, dynamic>>.from(jsonDecode(r.body));
+  }
 
+  Future<List<Map<String, dynamic>>> getProfileMessages(String profileId) async {
+    final r = await http.get(Uri.parse('$_backendBaseUrl/api/profiles/$profileId/messages'), headers: await _getAuthHeaders());
+    if (r.statusCode != 200) throw Exception('Failed to load messages');
+    return List<Map<String, dynamic>>.from(jsonDecode(r.body));
+  }
+
+  Future<String> sendProfileMessage({required String profileId, required String content, String contentType = 'text'}) async {
+    final r = await http.post(Uri.parse('$_backendBaseUrl/api/profiles/$profileId/messages'), headers: await _getAuthHeaders(), body: jsonEncode({'content': content, 'contentType': contentType}));
+    if (r.statusCode != 200) throw Exception('Failed to send message');
+    return (jsonDecode(r.body) as Map)['id'] as String;
+  }
+
+  Future<void> markProfileAsRead(String profileId) async {
+    final r = await http.post(Uri.parse('$_backendBaseUrl/api/profiles/$profileId/read'), headers: await _getAuthHeaders());
+    if (r.statusCode != 200) throw Exception('Failed to mark read');
+  }
+
+  Future<String> createProfile({String? title, required String type, required List<String> memberIds}) async {
+    final r = await http.post(Uri.parse('$_backendBaseUrl/api/profiles'), headers: await _getAuthHeaders(), body: jsonEncode({'title': title, 'type': type, 'memberIds': memberIds}));
+    if (r.statusCode != 200) throw Exception('Failed to create profile');
+    return (jsonDecode(r.body) as Map)['id'] as String;
+  }
+
+  Future<List<Map<String, dynamic>>> searchUsers({String? query, int limit = 20}) async {
+    final uri = Uri.parse('$_backendBaseUrl/api/users/search').replace(queryParameters: { if (query != null && query.isNotEmpty) 'query': query, 'limit': limit.toString() });
+    final r = await http.get(uri, headers: await _getAuthHeaders());
+    if (r.statusCode != 200) throw Exception('Failed to search users');
+    return List<Map<String, dynamic>>.from(jsonDecode(r.body));
+  }
+
+  Future<String> createExternalUser({required String name, String? email, String? phone}) async {
+    final identifier = email ?? '$phone@phone.local';
+    final r = await http.post(Uri.parse('$_backendBaseUrl/api/users/external'), headers: await _getAuthHeaders(), body: jsonEncode({'name': name, 'email': identifier, 'phone': phone, 'isExternal': true}));
+    if (r.statusCode != 200) throw Exception('Failed to create external user');
+    return (jsonDecode(r.body) as Map)['id'] as String;
+  }
+
+  // ---- Init ----
+  Future<void> init() async {
+    if (_initialized) return;
     try {
       if (kIsWeb) {
-        if (kDebugMode) {
-          debugPrint('SQLite not supported on web, using in-memory fallback storage');
-        }
-        _inMemory = true;
-        _initialized = true;
-        return;
+        final factory = databaseFactoryFfiWeb;
+        _db = await factory.openDatabase(_dbName, options: OpenDatabaseOptions(
+          version: _dbVersion,
+          onCreate: (db, v) async => _onCreate(db),
+          onUpgrade: (db, o, n) async => _onUpgrade(db, o, n),
+        ));
+      } else {
+        final dir = await getApplicationDocumentsDirectory();
+        _db = await openDatabase(p.join(dir.path, _dbName), version: _dbVersion, onCreate: (db, v) async => _onCreate(db), onUpgrade: (db, o, n) async => _onUpgrade(db, o, n));
       }
-      
-      final appDir = await getApplicationDocumentsDirectory();
-      final path = p.join(appDir.path, _dbName);
-      if (kDebugMode) {
-        debugPrint('Initializing database at path: $path');
-      }
-      
-      _db = await openDatabase(
-        path,
-        version: _dbVersion,
-        onCreate: (db, version) async {
-          await _onCreate(db, version);
-        },
-        onUpgrade: (db, oldVersion, newVersion) async {
-          await _onUpgrade(db, oldVersion, newVersion);
-        },
-        onOpen: (db) {
-          if (kDebugMode) {
-            debugPrint('Database opened successfully');
-          }
-        },
-      );
-      
       _initialized = true;
-      if (kDebugMode) {
-        debugPrint('Database initialized successfully');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Failed to initialize database: $e');
-      }
+    } catch (e, st) {
+      debugPrint('DB init failed: $e\n$st');
       rethrow;
     }
   }
 
-  Future<void> _onCreate(Database db, int version) async {
-    await db.execute('''CREATE TABLE health_entries (
-      id TEXT PRIMARY KEY,
-      person_id TEXT,
-      timestamp INTEGER,
-      type TEXT,
-      data TEXT
-    )''');
+  Database _ensure() {
+    final db = _db; if (!_initialized || db == null || !db.isOpen) throw StateError('DB not initialized'); return db; }
 
-    await db.execute('''CREATE TABLE groups (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      owner_user_id TEXT,
-      data TEXT
-    )''');
-
-    await db.execute('''CREATE TABLE medications (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      dosage TEXT,
-      schedule_type TEXT NOT NULL DEFAULT 'fixed',
-      from_date INTEGER,
-      to_date INTEGER,
-      frequency_per_day INTEGER,
-      is_deleted INTEGER NOT NULL DEFAULT 0,
-      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-    )''');
-    
-    // Add indexes for better performance
-    await db.execute('CREATE INDEX idx_medications_is_deleted ON medications(is_deleted);');
-
-    await db.execute('''CREATE TABLE reports (
-      id TEXT PRIMARY KEY,
-      file_path TEXT,
-      type TEXT,
-      data TEXT,
-      upload_date INTEGER
-    )''');
-
-    await db.execute('''CREATE TABLE reminders (
-      id TEXT PRIMARY KEY,
-      user_id TEXT,
-      medication_id TEXT,
-      title TEXT,
-      time TEXT,
-      message TEXT,
-      repeat TEXT,
-      days TEXT,
-      active INTEGER DEFAULT 1
-    )''');
-
-    await db.execute('''CREATE TABLE parsed_parameters (
-      id TEXT PRIMARY KEY,
-      message_id TEXT,
-      category TEXT,
-      parameter TEXT,
-      value TEXT,
-      unit TEXT,
-      datetime TEXT,
-      raw_json TEXT
-    )''');
-
-    await db.execute('''CREATE TABLE messages (
-      id TEXT PRIMARY KEY,
-      role TEXT,
-      content TEXT,
-      created_at INTEGER,
-      person_id TEXT
-    )''');
-    
-    await db.execute('''CREATE TABLE activities (
-      id TEXT PRIMARY KEY,
-      user_id TEXT,
-      name TEXT,
-      duration_minutes INTEGER,
-      distance_km REAL,
-      intensity TEXT,
-      calories_burned REAL,
-      timestamp INTEGER,
-      notes TEXT
-    )''');
+  // ---- Schema ----
+  Future<void> _onCreate(Database db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, role TEXT, content TEXT, created_at INTEGER, person_id TEXT)''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS health_entries (id TEXT PRIMARY KEY, person_id TEXT, timestamp INTEGER NOT NULL, type TEXT NOT NULL, data TEXT NOT NULL)''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, file_path TEXT, type TEXT, data TEXT, upload_date INTEGER)''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS reminders (id TEXT PRIMARY KEY, user_id TEXT, medication_id TEXT, title TEXT, time TEXT, message TEXT, repeat TEXT, days TEXT, active INTEGER DEFAULT 1)''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS parsed_parameters (id TEXT PRIMARY KEY, unit TEXT, datetime TEXT, raw_json TEXT)''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS medications (id TEXT PRIMARY KEY, name TEXT, dose REAL, dose_unit TEXT, frequency_per_day INTEGER, schedule_type TEXT, from_date INTEGER, to_date INTEGER, is_deleted INTEGER DEFAULT 0)''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_medications_deleted ON medications(is_deleted);');
+    await _createNormalizedMedicationTables(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute('''CREATE TABLE IF NOT EXISTS parsed_parameters (
-        id TEXT PRIMARY KEY,
-        message_id TEXT,
-        category TEXT,
-        parameter TEXT,
-        value TEXT,
-        unit TEXT,
-        datetime TEXT,
-        raw_json TEXT
-      )''');
-    }
-    if (oldVersion < 3) {
-      await db.execute('''CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        role TEXT,
-        content TEXT,
-        created_at INTEGER,
-        person_id TEXT
-      )''');
-    }
-    if (oldVersion < 4) {
-      await db.execute('''CREATE TABLE IF NOT EXISTS activities (
-        id TEXT PRIMARY KEY,
-        user_id TEXT,
-        name TEXT,
-        duration_minutes INTEGER,
-        distance_km REAL,
-        intensity TEXT,
-        calories_burned REAL,
-        timestamp INTEGER,
-        notes TEXT
-      )''');
-    }
-    if (oldVersion < 5) {
-      // Drop and recreate reminders table with new schema
-      await db.execute('DROP TABLE IF EXISTS reminders');
-      await db.execute('''CREATE TABLE reminders (
-        id TEXT PRIMARY KEY,
-        user_id TEXT,
-        medication_id TEXT,
-        title TEXT,
-        time TEXT,
-        message TEXT,
-        repeat TEXT,
-        days TEXT,
-        active INTEGER DEFAULT 1
-      )''');
-    }
-    if (oldVersion < 6) {
-      // Backup existing medications
-      final medications = await db.query('medications');
-      
-      // Drop and recreate medications table with new schema
-      await db.execute('DROP TABLE IF EXISTS medications');
-      await db.execute('''CREATE TABLE medications (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        dose REAL,
-        dose_unit TEXT,
-        frequency_per_day INTEGER,
-        schedule_type TEXT CHECK(schedule_type IN ('fixed', 'as_needed', 'continuous')),
-        from_date INTEGER,
-        to_date INTEGER
-      )''');
-      
-      // Migrate existing data
-      for (final med in medications) {
-        final startDate = med['start_date'] as int?;
-        final durationDays = med['duration_days'] as int?;
-        
-        await db.insert('medications', {
-          'id': med['id'],
+    // For simplicity re-run create (idempotent via IF NOT EXISTS) then targeted migrations
+    await _onCreate(db);
+    if (oldVersion < 8) await _migrateLegacy(db);
+  }
+
+  Future<void> _createNormalizedMedicationTables(Database db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS medications_v2 (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, profile_id TEXT NOT NULL, name TEXT NOT NULL, notes TEXT, medication_url TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_medications_user_profile ON medications_v2(user_id, profile_id);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_medications_name ON medications_v2(name);');
+
+    await db.execute('''CREATE TABLE IF NOT EXISTS medication_schedules (
+      id TEXT PRIMARY KEY,
+      medication_id TEXT NOT NULL,
+      schedule TEXT NOT NULL,
+      frequency_per_day INTEGER,
+      is_forever INTEGER DEFAULT 0,
+      start_date INTEGER,
+      end_date INTEGER,
+      days_of_week TEXT,
+      timezone TEXT,
+      reminder_enabled INTEGER DEFAULT 1,
+      FOREIGN KEY(medication_id) REFERENCES medications_v2(id) ON DELETE CASCADE
+    )''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_schedules_medication ON medication_schedules(medication_id);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_schedules_active_window ON medication_schedules(start_date, end_date);');
+
+    await db.execute('''CREATE TABLE IF NOT EXISTS medication_schedule_times (
+      id TEXT PRIMARY KEY,
+      schedule_id TEXT NOT NULL,
+      time_local TEXT NOT NULL,
+      dosage TEXT,
+      dose_amount REAL,
+      dose_unit TEXT,
+      instructions TEXT,
+      prn INTEGER DEFAULT 0,
+      sort_order INTEGER,
+      next_trigger_ts INTEGER,
+      FOREIGN KEY(schedule_id) REFERENCES medication_schedules(id) ON DELETE CASCADE
+    )''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_times_schedule ON medication_schedule_times(schedule_id);');
+  await db.execute('CREATE INDEX IF NOT EXISTS idx_times_trigger ON medication_schedule_times(next_trigger_ts);');
+
+    await db.execute('''CREATE TABLE IF NOT EXISTS medication_intake_logs (
+      id TEXT PRIMARY KEY,
+      schedule_time_id TEXT NOT NULL,
+      taken_ts INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      actual_dose_amount REAL,
+      actual_dose_unit TEXT,
+      notes TEXT,
+      FOREIGN KEY(schedule_time_id) REFERENCES medication_schedule_times(id) ON DELETE CASCADE
+    )''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_intake_logs_time ON medication_intake_logs(taken_ts);');
+  }
+
+  Future<void> _migrateLegacy(Database db) async {
+    try {
+      final legacy = await db.query('medications');
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (final med in legacy) {
+        final id = med['id'] as String?; if (id == null) continue;
+        final exists = await db.query('medications_v2', where: 'id = ?', whereArgs: [id]);
+        if (exists.isNotEmpty) continue; // already migrated
+        await db.insert('medications_v2', {
+          'id': id,
+            // Prototype placeholders until auth/profile routing is fully wired on client
+          'user_id': 'prototype-user',
+          'profile_id': 'default-profile',
           'name': med['name'],
-          'dose': med['dose'],
-          'dose_unit': med['dose_unit'],
-          'frequency_per_day': med['frequency_per_day'],
-          'schedule_type': durationDays == null ? 'continuous' : 'fixed',
-          'from_date': startDate,
-          'to_date': startDate != null && durationDays != null 
-            ? startDate + (durationDays * 24 * 60 * 60 * 1000)  // Convert days to milliseconds
-            : null,
+          'notes': null,
+          'medication_url': null,
+          'created_at': now,
+          'updated_at': now,
         });
       }
-    }
-  }
-
-  // --- Medication operations ---
-  Future<void> insertMedication(Map<String, dynamic> med) async {
-    if (_inMemory) {
-      _medications.add(Map<String, dynamic>.from(med));
-      return;
-    }
-    final db = _ensure();
-    await db.insert('medications', {
-      'id': med['id'],
-      'name': med['name'],
-      'dose': med['dose'],
-      'dose_unit': med['doseUnit'],
-      'frequency_per_day': med['frequencyPerDay'],
-      'schedule_type': med['scheduleType'] ?? 'fixed',
-      'from_date': (med['fromDate'] as DateTime?)?.millisecondsSinceEpoch,
-      'to_date': (med['toDate'] as DateTime?)?.millisecondsSinceEpoch,
-    });
-  }
-
-  Future<List<Map<String, dynamic>>> listMedications() async {
-    if (_inMemory) {
-      return List<Map<String, dynamic>>.from(_medications);
-    }
-    final db = _ensure();
-    final rows = await db.query('medications', orderBy: 'start_date DESC');
-    return rows;
-  }
-
-  Future<void> deleteMedication(String id) async {
-    debugPrint('Soft deleting medication with ID: $id');
-    try {
-      if (_inMemory) {
-        final index = _medications.indexWhere((med) => med['id'] == id);
-        if (index != -1) {
-          _medications[index] = {
-            ..._medications[index],
-            'is_deleted': 1,
-          };
-        }
-        return;
-      }
-      final db = _ensure();
-      
-      // Soft delete the medication by setting is_deleted flag
-      await db.update(
-        'medications',
-        {'is_deleted': 1},
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-      
-      debugPrint('Successfully soft deleted medication');
     } catch (e) {
-      debugPrint('Failed to soft delete medication: $e');
-      rethrow;
+      debugPrint('Legacy migration warn: $e');
     }
   }
 
-  Future<void> updateMedication(Map<String, dynamic> medication) async {
-    debugPrint('Updating/Creating medication with ID: ${medication['id']}');
-    try {
-      if (_inMemory) {
-        final headers = {
-          ...await _getAuthHeaders(),
-          'Content-Type': 'application/json',
-        };
+  // ---- Helpers ----
+  String _roleToString(MessageRole r) => switch (r) { MessageRole.user => 'user', MessageRole.assistant => 'assistant', MessageRole.system => 'system' };
+  MessageRole _roleFromString(String r) => switch (r.toLowerCase()) { 'user' => MessageRole.user, 'assistant' || 'ai' || 'bot' => MessageRole.assistant, 'system' => MessageRole.system, _ => MessageRole.assistant };
+  Map<String, dynamic> _parseMap(String s) => Map<String, dynamic>.from(jsonDecode(s) as Map);
 
-        // First try to create the medication
-        final createResponse = await http.post(
-          Uri.parse('${AppConfig.backendBaseUrl}/api/medications'),
-          headers: headers,
-          body: json.encode(medication),
-        );
-
-        if (createResponse.statusCode != 201) {
-          // If creation fails, try updating
-          final updateResponse = await http.put(
-            Uri.parse('${AppConfig.backendBaseUrl}/api/medications/${medication['id']}'),
-            headers: headers,
-            body: json.encode(medication),
-          );
-
-          if (updateResponse.statusCode != 200) {
-            throw Exception('Failed to save medication: ${updateResponse.body}');
-          }
-        }
-
-        final index = _medications.indexWhere((med) => med['id'] == medication['id']);
-        if (index != -1) {
-          _medications[index] = Map<String, dynamic>.from(medication);
-        } else {
-          _medications.add(Map<String, dynamic>.from(medication));
-        }
-        return;
-      }
-
-      // Fallback to direct database update if not in memory mode
-      final db = _ensure();
-      final updateData = {
-        'name': medication['name'],
-        'dosage': medication['dosage'],
-        'frequency_per_day': medication['frequency_per_day'],
-        'schedule_type': medication['schedule_type'],
-        'from_date': medication['from_date'],
-        'to_date': medication['to_date'],
-        'is_deleted': medication['is_deleted'] ?? 0,
-        'user_id': medication['user_id'] ?? 'prototype-user-12345',
-      };
-      
-      await db.update(
-        'medications',
-        updateData,
-        where: 'id = ? AND user_id = ?',
-        whereArgs: [medication['id'], medication['user_id'] ?? 'prototype-user-12345'],
-      );
-      
-      debugPrint('Successfully updated medication');
-    } catch (e) {
-      debugPrint('Failed to update medication: $e');
-      rethrow;
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getMedications({bool includeDeleted = false}) async {
-    if (_inMemory) {
-      try {
-        final response = await http.get(
-          Uri.parse('${AppConfig.backendBaseUrl}/api/medications'),
-          headers: await _getAuthHeaders(),
-        );
-        
-        if (response.statusCode == 200) {
-          final List<dynamic> data = json.decode(response.body);
-          final medications = data.cast<Map<String, dynamic>>();
-          if (!includeDeleted) {
-            return medications.where((med) => med['is_deleted'] != 1).toList();
-          }
-          return medications;
-        } else {
-          debugPrint('Failed to fetch medications: ${response.statusCode}');
-          return [];
-        }
-      } catch (e) {
-        debugPrint('Failed to fetch medications: $e');
-        return [];
-      }
-    }
-    
-    try {
-      final db = _ensure();
-      final rows = await db.query(
-        'medications',
-        orderBy: 'start_date DESC',
-      );
-      return rows;
-    } catch (e) {
-      debugPrint('Failed to fetch medications: $e');
-      return [];
-    }
-  }
-
-  // --- Reminder operations ---
-  Future<List<Map<String, dynamic>>> getRemindersByMedicationId(String medicationId) async {
-    if (_inMemory) {
-      return _reminders.where((r) => r['medication_id'] == medicationId && r['active'] == 1).toList();
-    }
-    final db = _ensure();
-    final rows = await db.query(
-      'reminders',
-      where: 'medication_id = ? AND active = 1',
-      whereArgs: [medicationId],
-      orderBy: 'time ASC',
-    );
-    return rows;
-  }
-
-  Future<void> deleteRemindersForMedication(String medicationId) async {
-    if (_inMemory) {
-      _reminders.removeWhere((r) => r['medication_id'] == medicationId);
-      return;
-    }
-    final db = _ensure();
-    await db.delete(
-      'reminders',
-      where: 'medication_id = ?',
-      whereArgs: [medicationId],
-    );
-  }
-
-  Future<void> insertReminder(Map<String, dynamic> reminder) async {
-    final reminderId = const Uuid().v4();
-    debugPrint('Starting reminder insertion for ID: $reminderId');
-
-    // Validate required fields
-    final requiredFields = ['user_id', 'medication_id', 'title', 'time', 'message', 'repeat'];
-    for (final field in requiredFields) {
-      if (reminder[field] == null) {
-        throw Exception('Missing required field: $field');
-      }
-    }
-
-    // Prepare reminder data
-    final reminderData = {
-      'id': reminderId,
-      'user_id': reminder['user_id'],
-      'medication_id': reminder['medication_id'],
-      'title': reminder['title'],
-      'time': reminder['time'],
-      'message': reminder['message'],
-      'repeat': reminder['repeat'],
-      'days': reminder['days'],
-      'active': reminder['active'] ?? 1,
-    };
-
-    try {
-      if (_inMemory) {
-        debugPrint('Adding reminder to in-memory storage: $reminderData');
-        _reminders.add(reminderData);
-        debugPrint('Reminder added to in-memory storage successfully');
-      } else {
-        final db = _ensure();
-        debugPrint('Inserting reminder into database: $reminderData');
-        await db.insert(
-          'reminders',
-          reminderData,
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-        debugPrint('Reminder successfully inserted into SQLite database');
-      }
-
-      // Schedule the notification (only for mobile)
-      if (!kIsWeb) {
-        try {
-          debugPrint('Scheduling notification for reminder');
-          await _notificationService.scheduleMedicationReminder(
-            id: reminderId,
-            title: reminder['title'],
-            message: reminder['message'],
-            time: reminder['time'],
-            repeat: reminder['repeat'],
-            days: reminder['days'],
-          );
-          debugPrint('Notification scheduled successfully');
-        } catch (e) {
-          debugPrint('Failed to schedule notification: $e');
-          // Continue even if notification fails as the reminder is saved
-        }
-      } else {
-        debugPrint('Skipping notification scheduling in web mode');
-      }
-    } catch (e) {
-      debugPrint('Failed to insert reminder: $e');
-      rethrow;
-    }
-  }
-
-  Future<void> updateMedicationReminders(String medicationId) async {
-    if (kIsWeb) {
-      debugPrint('Skipping notification updates in web mode');
-      return;
-    }
-
-    final reminders = await getRemindersByMedicationId(medicationId);
-
-    // Cancel existing notifications
-    for (final reminder in reminders) {
-      await _notificationService.cancelNotification(reminder['id'] as String);
-    }
-
-    // Schedule new notifications for active reminders
-    for (final reminder in reminders.where((r) => r['active'] == 1)) {
-      await _notificationService.scheduleMedicationReminder(
-        id: reminder['id'] as String,
-        title: reminder['title'] as String,
-        message: reminder['message'] as String,
-        time: reminder['time'] as String,
-        repeat: reminder['repeat'] as String,
-        days: reminder['days'] as String?,
-      );
-    }
-  }
-
-  // --- Report operations ---
-  Future<void> insertReport(Map<String, dynamic> report) async {
-    if (_inMemory) {
-      _reports.add(Map<String, dynamic>.from(report));
-      return;
-    }
-    final db = _ensure();
-    await db.insert('reports', {
-      'id': report['id'],
-      'file_path': report['filePath'],
-      'type': report['type'],
-      'data': jsonEncode(report['data'] ?? {}),
-      'upload_date': report['uploadDate'],
-    });
-  }
-
-  Future<List<Map<String, dynamic>>> listReports() async {
-    if (_inMemory) {
-      return List<Map<String, dynamic>>.from(_reports);
-    }
-    final db = _ensure();
-    return db.query('reports', orderBy: 'upload_date DESC');
-  }
-
-  // --- Entry operations ---
-  Future<void> insertEntry(HealthEntry entry) async {
-    if (_inMemory) {
-      _entries.add(entry);
-      return;
-    }
-    final db = _ensure();
-    await db.insert('health_entries', {
-      'id': entry.id,
-      'person_id': entry.personId,
-      'timestamp': entry.timestamp.millisecondsSinceEpoch,
-      'type': entry.type.name,
-      'data': jsonEncode(entry.toJson()),
-    });
-  }
-
-  Future<List<HealthEntry>> listAllEntries({String? personId}) async {
-    if (_inMemory) {
-      final list = personId == null ? _entries : _entries.where((e) => e.personId == personId).toList();
-      return List<HealthEntry>.from(list)
-        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    }
-    final db = _ensure();
-    final rows = await db.query('health_entries',
-        where: personId != null ? 'person_id = ?' : null,
-        whereArgs: personId != null ? [personId] : null,
-        orderBy: 'timestamp DESC');
-    return rows.map((r) {
-      final dataStr = r['data'] as String;
-      final jsonMap = _parseMap(dataStr);
-      return HealthEntry.fromJson(jsonMap);
-    }).toList();
-  }
-
-  // --- Message operations ---
+  // ---- Messages ----
   Future<void> insertMessage(Message message, {String? personId}) async {
-    if (_inMemory) {
-      _messages.add(message);
-      return;
-    }
     final db = _ensure();
     await db.insert('messages', {
       'id': message.id,
@@ -813,25 +210,112 @@ class DatabaseService {
   }
 
   Future<List<Message>> getMessages({int limit = 100, String? personId}) async {
-    if (_inMemory) {
-      final list = personId == null
-          ? _messages
-          : _messages.where((m) => m.id.contains(personId)).toList();
-      final sorted = List<Message>.from(list)
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      return sorted.take(limit).toList();
-    }
     final db = _ensure();
-    final rows = await db.query('messages',
-        where: personId != null ? 'person_id = ?' : null,
-        whereArgs: personId != null ? [personId] : null,
-        orderBy: 'created_at ASC',
-        limit: limit);
-    return rows.map((r) => Message(
-      id: r['id'] as String,
-      role: _roleFromString(r['role'] as String),
-      content: r['content'] as String,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(r['created_at'] as int),
-    )).toList();
+    final rows = await db.query('messages', where: personId != null ? 'person_id = ?' : null, whereArgs: personId != null ? [personId] : null, orderBy: 'created_at ASC', limit: limit);
+    return rows.map((r) => Message(id: r['id'] as String, role: _roleFromString(r['role'] as String), content: r['content'] as String, createdAt: DateTime.fromMillisecondsSinceEpoch(r['created_at'] as int))).toList();
+  }
+
+  // ---- Health Entries ----
+  Future<void> insertEntry(HealthEntry entry) async {
+    final db = _ensure();
+    await db.insert('health_entries', {
+      'id': entry.id,
+      'person_id': entry.personId,
+      'timestamp': entry.timestamp.millisecondsSinceEpoch,
+      'type': entry.type.name,
+      'data': jsonEncode(entry.toJson()),
+    });
+  }
+
+  Future<List<HealthEntry>> listAllEntries({String? personId}) async {
+    final db = _ensure();
+    final rows = await db.query('health_entries', where: personId != null ? 'person_id = ?' : null, whereArgs: personId != null ? [personId] : null, orderBy: 'timestamp DESC');
+    return rows.map((r) => HealthEntry.fromJson(_parseMap(r['data'] as String))).toList();
+  }
+
+  // ---- Reports ----
+  Future<void> insertReport(Map<String, dynamic> report) async {
+    final db = _ensure();
+    await db.insert('reports', {
+      'id': report['id'],
+      'file_path': report['filePath'],
+      'type': report['type'],
+      'data': jsonEncode(report['data'] ?? {}),
+      'upload_date': report['uploadDate'],
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> listReports() async {
+    final db = _ensure();
+    return db.query('reports', orderBy: 'upload_date DESC');
+  }
+
+  Future<void> deleteMedication(String id) async => _ensure().update('medications', {'is_deleted': 1}, where: 'id = ?', whereArgs: [id]);
+
+  // ---- Legacy compatibility (to be removed after full migration) ----
+  Future<void> updateMedication(Map<String, dynamic> medication) async {
+    final db = _ensure();
+    await db.update('medications', {
+      'name': medication['name'],
+      'dosage': medication['dosage'],
+      'frequency_per_day': medication['frequency_per_day'],
+      'schedule_type': medication['schedule_type'],
+      'from_date': medication['from_date'],
+      'to_date': medication['to_date'],
+      'is_deleted': medication['is_deleted'] ?? 0,
+    }, where: 'id = ?', whereArgs: [medication['id']]);
+  }
+
+  Future<List<Map<String, dynamic>>> getMedications({bool includeDeleted = false}) async {
+    final db = _ensure();
+    return db.query('medications', where: includeDeleted ? null : 'is_deleted = 0');
+  }
+
+  // ---- Normalized Medications (v2) ----
+  Future<void> createMedicationV2(Map<String, dynamic> data) async => _ensure().insert('medications_v2', data, conflictAlgorithm: ConflictAlgorithm.replace);
+
+  Future<void> updateMedicationV2(Map<String, dynamic> data) async => _ensure().update('medications_v2', data, where: 'id = ?', whereArgs: [data['id']]);
+
+  Future<List<Map<String, dynamic>>> listMedicationsV2({required String userId, required String profileId}) async => _ensure().query('medications_v2', where: 'user_id = ? AND profile_id = ?', whereArgs: [userId, profileId], orderBy: 'name ASC');
+
+  Future<void> deleteMedicationV2(String id) async => _ensure().delete('medications_v2', where: 'id = ?', whereArgs: [id]);
+
+  Future<void> createSchedule(Map<String, dynamic> data) async => _ensure().insert('medication_schedules', data, conflictAlgorithm: ConflictAlgorithm.replace);
+
+  Future<void> updateSchedule(Map<String, dynamic> data) async => _ensure().update('medication_schedules', data, where: 'id = ?', whereArgs: [data['id']]);
+
+  Future<void> deleteSchedule(String id) async => _ensure().delete('medication_schedules', where: 'id = ?', whereArgs: [id]);
+
+  Future<List<Map<String, dynamic>>> getSchedules(String medicationId) async => _ensure().query('medication_schedules', where: 'medication_id = ?', whereArgs: [medicationId], orderBy: 'start_date ASC');
+
+  Future<Map<String, dynamic>?> getScheduleById(String scheduleId) async { final rows = await _ensure().query('medication_schedules', where: 'id = ?', whereArgs: [scheduleId], limit: 1); return rows.isEmpty ? null : rows.first; }
+
+  Future<void> createScheduleTime(Map<String, dynamic> data) async => _ensure().insert('medication_schedule_times', data, conflictAlgorithm: ConflictAlgorithm.replace);
+
+  Future<void> updateScheduleTime(Map<String, dynamic> data) async => _ensure().update('medication_schedule_times', data, where: 'id = ?', whereArgs: [data['id']]);
+
+  Future<void> deleteScheduleTime(String id) async => _ensure().delete('medication_schedule_times', where: 'id = ?', whereArgs: [id]);
+
+  Future<List<Map<String, dynamic>>> getScheduleTimes(String scheduleId) async => _ensure().query('medication_schedule_times', where: 'schedule_id = ?', whereArgs: [scheduleId], orderBy: 'sort_order ASC, time_local ASC');
+
+  Future<void> insertIntakeLog(Map<String, dynamic> data) async => _ensure().insert('medication_intake_logs', data, conflictAlgorithm: ConflictAlgorithm.replace);
+
+  Future<List<Map<String, dynamic>>> listIntakeLogs(String medicationId, {int? fromTs, int? toTs}) async { final where = StringBuffer('ms.medication_id = ?'); final args = <Object?>[medicationId]; if (fromTs != null) { where.write(' AND mil.taken_ts >= ?'); args.add(fromTs); } if (toTs != null) { where.write(' AND mil.taken_ts <= ?'); args.add(toTs); } return _ensure().rawQuery('''SELECT mil.* FROM medication_intake_logs mil\n      JOIN medication_schedule_times mst ON mil.schedule_time_id = mst.id\n      JOIN medication_schedules ms ON mst.schedule_id = ms.id\n      WHERE ${where.toString()} ORDER BY mil.taken_ts DESC''', args); }
+
+  // Generic raw query helper
+  Future<List<Map<String, dynamic>>> rawQuery(String sql, [List<Object?>? args]) async => _ensure().rawQuery(sql, args);
+
+  // ---- Reminders ----
+  Future<void> insertReminder(Map<String, dynamic> reminder) async { const requiredFields = ['id','medication_id','title','time','repeat']; for (final f in requiredFields) { if (!reminder.containsKey(f)) throw Exception('Missing required field: $f'); } await _ensure().insert('reminders', reminder, conflictAlgorithm: ConflictAlgorithm.replace); if (!kIsWeb) { await _notificationService.scheduleMedicationReminder(id: reminder['id'] as String, title: reminder['title'] as String, message: (reminder['message'] as String?) ?? reminder['title'] as String, time: reminder['time'] as String, repeat: reminder['repeat'] as String, days: reminder['days'] as String?); } }
+
+  Future<List<Map<String, dynamic>>> getRemindersByMedicationId(String medicationId) async => _ensure().query('reminders', where: 'medication_id = ?', whereArgs: [medicationId]);
+
+
+  Future<void> updateMedicationReminders(String medicationId) async { if (kIsWeb) return; final reminders = await getRemindersByMedicationId(medicationId); for (final r in reminders) { await _notificationService.cancelNotification(r['id'] as String); } for (final r in reminders.where((x) => x['active'] == 1)) { await _notificationService.scheduleMedicationReminder(id: r['id'] as String, title: r['title'] as String, message: (r['message'] as String?) ?? r['title'] as String, time: r['time'] as String, repeat: r['repeat'] as String, days: r['days'] as String?); } }
+
+  // Remove all reminders for a medication (used by schedule editor before re-creating times)
+  Future<void> deleteRemindersForMedication(String medicationId) async {
+    final db = _ensure();
+    await db.delete('reminders', where: 'medication_id = ?', whereArgs: [medicationId]);
   }
 }

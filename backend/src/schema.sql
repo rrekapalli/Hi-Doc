@@ -66,18 +66,61 @@ CREATE TABLE IF NOT EXISTS health_data (
   FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE
 );
 
+-- Normalized Medications Schema
+-- 1) medications: base drug record per user+profile
 CREATE TABLE IF NOT EXISTS medications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   profile_id TEXT NOT NULL,
   name TEXT NOT NULL,
-  dosage TEXT,
-  schedule TEXT,
-  duration_days INTEGER,
-  is_forever INTEGER DEFAULT 0,
-  start_date INTEGER,
+  notes TEXT,
+  medication_url TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+
+-- 2) medication_schedules: recurrence window & configuration
+CREATE TABLE IF NOT EXISTS medication_schedules (
+  id TEXT PRIMARY KEY,
+  medication_id TEXT NOT NULL,
+  schedule TEXT NOT NULL,              -- human-readable frequency descriptor
+  frequency_per_day INTEGER,           -- optional; e.g. 2
+  is_forever INTEGER DEFAULT 0,        -- 1=indefinite
+  start_date INTEGER,                  -- epoch ms
+  end_date INTEGER,                    -- nullable if is_forever=1
+  days_of_week TEXT,                   -- CSV of MON,TUE,... or 0-6
+  timezone TEXT,                       -- IANA TZ
+  reminder_enabled INTEGER DEFAULT 1,  -- 1=on
+  FOREIGN KEY(medication_id) REFERENCES medications(id) ON DELETE CASCADE
+);
+
+-- 3) medication_schedule_times: specific dose times & dosage meta
+CREATE TABLE IF NOT EXISTS medication_schedule_times (
+  id TEXT PRIMARY KEY,
+  schedule_id TEXT NOT NULL,
+  time_local TEXT NOT NULL,            -- HH:MM 24h in schedule timezone
+  dosage TEXT,                         -- free text: "1 tab (500 mg)"
+  dose_amount REAL,
+  dose_unit TEXT,
+  instructions TEXT,                   -- e.g., before breakfast
+  prn INTEGER DEFAULT 0,               -- 1=as needed
+  sort_order INTEGER,
+  next_trigger_ts INTEGER,             -- cached next notification time
+  FOREIGN KEY(schedule_id) REFERENCES medication_schedules(id) ON DELETE CASCADE
+);
+
+-- 4) medication_intake_logs: adherence tracking
+CREATE TABLE IF NOT EXISTS medication_intake_logs (
+  id TEXT PRIMARY KEY,
+  schedule_time_id TEXT NOT NULL,
+  taken_ts INTEGER NOT NULL,
+  status TEXT NOT NULL,                -- taken|missed|skipped|snoozed
+  actual_dose_amount REAL,
+  actual_dose_unit TEXT,
+  notes TEXT,
+  FOREIGN KEY(schedule_time_id) REFERENCES medication_schedule_times(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS reports (
@@ -143,6 +186,12 @@ CREATE INDEX IF NOT EXISTS idx_health_data_category ON health_data(category);
 CREATE INDEX IF NOT EXISTS idx_health_data_profile ON health_data(profile_id);
 CREATE INDEX IF NOT EXISTS idx_medications_user ON medications(user_id);
 CREATE INDEX IF NOT EXISTS idx_medications_profile ON medications(profile_id);
+CREATE INDEX IF NOT EXISTS idx_medications_name ON medications(name);
+CREATE INDEX IF NOT EXISTS idx_schedules_medication ON medication_schedules(medication_id);
+CREATE INDEX IF NOT EXISTS idx_schedules_active_window ON medication_schedules(start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_times_schedule ON medication_schedule_times(schedule_id);
+CREATE INDEX IF NOT EXISTS idx_times_trigger ON medication_schedule_times(next_trigger_ts);
+CREATE INDEX IF NOT EXISTS idx_intake_logs_time ON medication_intake_logs(taken_ts);
 CREATE INDEX IF NOT EXISTS idx_reports_user ON reports(user_id);
 CREATE INDEX IF NOT EXISTS idx_reports_profile ON reports(profile_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id);

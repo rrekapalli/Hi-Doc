@@ -16,6 +16,7 @@ import 'ui/screens/home_shell.dart';
 import 'ui/screens/login_screen.dart';
 import 'config/app_config.dart';
 import 'ui/common/app_theme.dart';
+import 'providers/medications_provider.dart';
 
 void main() async {
   // Ensure Flutter is properly initialized
@@ -62,6 +63,30 @@ class HiDocApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider(authService)),
   ChangeNotifierProvider(create: (_) => SettingsProvider()),
   ChangeNotifierProvider(create: (_) => SelectedProfileProvider()),
+        // Medications provider (normalized schema) – uses default profile id after SelectedProfileProvider
+        ChangeNotifierProxyProvider<SelectedProfileProvider, MedicationsProvider>(
+          create: (context) => MedicationsProvider(
+            db: db,
+            userId: 'prototype-user-12345',
+            profileId: context.read<SelectedProfileProvider>().selectedProfileId,
+          ),
+          update: (context, profile, previous) {
+            if (previous == null) {
+              return MedicationsProvider(
+                db: db,
+                userId: 'prototype-user-12345',
+                profileId: profile.selectedProfileId,
+              );
+            }
+            if (previous.profileId != profile.selectedProfileId) {
+              previous
+                ..medications.clear()
+                ..loading = false; // reset
+              previous.load();
+            }
+            return previous;
+          },
+        ),
         ChangeNotifierProvider(create: (context) => ChatProvider(db: db, authService: context.read<AuthService>())),
         ChangeNotifierProvider(create: (_) => ReportsProvider()),
   // Activities depends on ChatProvider for current profile
