@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../../services/database_service.dart';
 import 'package:provider/provider.dart';
 import '../../config/app_config.dart';
 import '../../providers/auth_provider.dart';
@@ -40,8 +41,20 @@ class _DataScreenState extends State<DataScreen> {
       final resp = await http.get(uri).timeout(const Duration(seconds: 6));
       if (resp.statusCode == 200) {
         final json = jsonDecode(resp.body) as Map<String, dynamic>;
+        final remote = (json['tables'] as List).cast<String>();
+        // Append local-only medication tables (not yet backed by backend API)
+        const localMedicationTables = [
+          'medications',
+          'medication_schedules',
+          'medication_schedule_times',
+          'medication_intake_logs',
+        ];
+        final merged = {
+          ...remote,
+          ...localMedicationTables,
+        }.toList()..sort();
         setState(() {
-          _tables = (json['tables'] as List).cast<String>();
+          _tables = merged;
         });
       } else {
         setState(() {
@@ -69,9 +82,33 @@ class _DataScreenState extends State<DataScreen> {
     });
     
     try {
-      // Special handling for messages table - query local database
+      // Local medication-related tables are not (yet) exposed via backend; query local SQLite directly.
+      const localMedicationTables = {
+        'medications',
+        'medication_schedules',
+        'medication_schedule_times',
+        'medication_intake_logs',
+      };
       if (table == 'messages') {
         await _fetchLocalMessages(page: page);
+        return;
+      } else if (localMedicationTables.contains(table) && table != 'messages') {
+        final db = context.read<DatabaseService>();
+        String orderBy;
+        switch (table) {
+          case 'medications': orderBy = 'name ASC'; break;
+          case 'medication_schedules': orderBy = 'start_date DESC'; break;
+          case 'medication_schedule_times': orderBy = 'sort_order ASC, time_local ASC'; break;
+          case 'medication_intake_logs': orderBy = 'taken_ts DESC'; break;
+          default: orderBy = 'rowid DESC';
+        }
+        final rows = await db.rawQuery('SELECT * FROM $table ORDER BY $orderBy');
+        setState(() {
+          _rows = rows;
+          _columns = rows.isNotEmpty ? rows.first.keys.where((c) => c != 'user_id' && c != 'id').toList() : [];
+          _page = 1; // paging not applied for local tables
+          _total = rows.length;
+        });
         return;
       }
       

@@ -1,83 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../debug/dev_title.dart';
-import '../../services/auth_service.dart';
-import '../../services/database_service.dart';
+import '../../models/medication_models.dart';
+import 'medication_wizard_screen.dart';
 
-class MedicationScheduleScreen extends StatefulWidget {
-  final Map<String, dynamic> medication;
-  
-  const MedicationScheduleScreen({
-    super.key,
-    required this.medication,
-  });
-
+/// Deprecated legacy schedule screen replaced by unified MedicationWizardScreen.
+class MedicationScheduleScreen extends StatelessWidget {
+  final Map<String, dynamic> medication; // legacy map
+  const MedicationScheduleScreen({super.key, required this.medication});
   @override
-  State<MedicationScheduleScreen> createState() => _MedicationScheduleScreenState();
-}
-
-class _MedicationScheduleScreenState extends State<MedicationScheduleScreen> {
-  List<TimeOfDay> _times = [];
-  bool _isDaily = true;
-  List<bool> _selectedDays = List.generate(7, (index) => true);
-  final _daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadExistingSchedule();
-  }
-
-  Future<void> _loadExistingSchedule() async {
-    final db = context.read<DatabaseService>();
-    final reminders = await db.getRemindersByMedicationId(widget.medication['id'] as String);
-    if (reminders.isNotEmpty) {
-      setState(() {
-        _times = reminders
-            .map((r) => TimeOfDay(
-                  hour: int.parse(r['time'].split(':')[0]),
-                  minute: int.parse(r['time'].split(':')[1]),
-                ))
-            .toList();
-        _isDaily = reminders.first['repeat'] == 'daily';
-        if (!_isDaily) {
-          final days = (reminders.first['days'] as String).split(',').map(int.parse).toList();
-          _selectedDays = List.generate(7, (index) => days.contains(index + 1));
-        }
-      });
-    }
-  }
-
-  Future<void> _addTime() async {
-    final TimeOfDay? time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
+  Widget build(BuildContext context) {
+    return MedicationWizardScreen(
+      editMedication: Medication(
+        id: medication['id'] as String,
+        userId: 'prototype-user-12345',
+        profileId: 'default-profile',
+        name: medication['name'] as String? ?? '',
+        notes: medication['dosage'] as String?,
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
     );
-
-    if (time != null) {
-      setState(() {
-        _times.add(time);
-      });
-      // Save the schedule immediately after adding a time
-      await _saveSchedule();
-    }
   }
-
-  Future<void> _saveSchedule() async {
-    final db = context.read<DatabaseService>();
-    
-    try {
-      // Use prototype user ID for now to match backend
-      const userId = 'prototype-user-12345';
-      
-      debugPrint('Saving schedule for medication: ${widget.medication['id']}');
-      debugPrint('Current times: ${_times.length}');
-      
-      // Delete existing reminders for this medication
-      await db.deleteRemindersForMedication(widget.medication['id'] as String);
-      debugPrint('Deleted existing reminders');
-      
-      // Add new reminders
+}
       for (final time in _times) {
         final reminderData = {
           'user_id': userId,

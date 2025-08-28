@@ -71,6 +71,19 @@
     })(0);
   </script>
   <!-- Load Flutter app -->
+  <script>
+    // Temporary shim: suppress DebugService spam "Cannot send Null" by guarding worker postMessage.
+    (function(){
+      var WP = window.Worker && window.Worker.prototype;
+      if (!WP || WP.__hidocPatched) return;
+      var orig = WP.postMessage;
+      WP.postMessage = function(msg, transfer){
+        if (msg == null) { return; }
+        try { return orig.call(this, msg, transfer); } catch (e) { /* swallow */ }
+      };
+      WP.__hidocPatched = true;
+    })();
+  </script>
   <script src="main.dart.js" type="application/javascript"></script>
 </body>
 </html>

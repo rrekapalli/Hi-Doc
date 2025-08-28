@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../debug/dev_title.dart';
+import '../common/hi_doc_app_bar.dart';
 import '../../providers/medications_provider.dart';
 import '../../providers/selected_profile_provider.dart';
 import '../../services/database_service.dart';
@@ -20,6 +21,16 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   DateTime _selectedDay = DateTime.now();
   List<_DoseEntry> _entries = [];
   bool _buildingEntries = false;
+  // Month + week navigation controllers
+  late final PageController _monthPageController; // centers current month
+  late final PageController _weekController;
+  static const int _weekCenterPage = 10000; // large number to allow back/forward paging
+  int _currentWeekPage = _weekCenterPage;
+  late DateTime _weekAnchorMonday; // Monday of the currently centered week
+  final List<DateTime> _monthWindow = List.generate(25, (i) {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month + i - 12, 1);
+  });
 
   @override
   void didChangeDependencies() {
@@ -28,7 +39,17 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
       _didInit = true;
       // Defer async load until after first frame to avoid setState/notify during build
       WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+      _monthPageController = PageController(initialPage: 12, viewportFraction: .22); // show neighbors
+      _weekController = PageController(initialPage: _weekCenterPage);
+      _weekAnchorMonday = _startOfWeek(_selectedDay);
     }
+  }
+
+  @override
+  void dispose() {
+    _monthPageController.dispose();
+    _weekController.dispose();
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -104,80 +125,160 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   }
 
   Widget _buildMonthStrip() {
-    final months = List.generate(6, (i){
-      final base = DateTime.now();
-      final m = DateTime(base.year, base.month + i, 1);
-      return m;
-    });
     final selectedMonthKey = '${_selectedDay.year}-${_selectedDay.month}';
     return SizedBox(
-      height: 48,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemBuilder: (_, i){
-          final m = months[i];
+      height: 56,
+      child: PageView.builder(
+        controller: _monthPageController,
+        onPageChanged: (page) {
+          final m = _monthWindow[page];
+          final day = _selectedDay.day.clamp(1, DateUtils.getDaysInMonth(m.year, m.month));
+          _changeDay(DateTime(m.year, m.month, day));
+          _animateWeekToSelected();
+        },
+        itemCount: _monthWindow.length,
+        itemBuilder: (_, i) {
+          final m = _monthWindow[i];
           final key = '${m.year}-${m.month}';
           final selected = key == selectedMonthKey;
-          return GestureDetector(
-            onTap: (){ _changeDay(DateTime(m.year,m.month,_selectedDay.day.clamp(1, DateUtils.getDaysInMonth(m.year,m.month)))); },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds:200),
-              padding: const EdgeInsets.symmetric(horizontal:16, vertical:8),
-              decoration: BoxDecoration(
-                color: selected ? Theme.of(context).colorScheme.primary.withValues(alpha: .15) : Colors.transparent,
-                borderRadius: BorderRadius.circular(24),
+          return Center(
+            child: GestureDetector(
+              onTap: () {
+                _monthPageController.animateToPage(i, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: selected ? Theme.of(context).colorScheme.primary.withValues(alpha:.18) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(_monthLabel(m.month), style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: selected ? Theme.of(context).colorScheme.primary : Colors.grey[700])),
               ),
-              child: Center(child: Text(
-                _monthLabel(m.month),
-                style: TextStyle(fontWeight: FontWeight.w600, color: selected ? Theme.of(context).colorScheme.primary : null),
-              )),
             ),
           );
         },
-        separatorBuilder: (_, __) => const SizedBox(width:8),
-        itemCount: months.length,
       ),
     );
   }
 
   Widget _buildDayStrip() {
-    final first = DateTime(_selectedDay.year, _selectedDay.month, 1);
-    final daysInMonth = DateUtils.getDaysInMonth(first.year, first.month);
+    // Weekly pager: stable anchor to avoid artifacts. Swipe to move week.
     return SizedBox(
-      height: 80,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemBuilder: (_, i){
-          final d = DateTime(first.year, first.month, i+1);
-          final selected = d.day == _selectedDay.day && d.month == _selectedDay.month && d.year == _selectedDay.year;
-          return GestureDetector(
-            onTap: ()=>_changeDay(d),
-            child: Container(
-              width: 56,
-              decoration: BoxDecoration(
-                color: selected ? Theme.of(context).colorScheme.primary : Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .05), blurRadius: 6, offset: const Offset(0,3))],
-                border: Border.all(color: selected ? Theme.of(context).colorScheme.primary : Theme.of(context).dividerColor),
-              ),
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(_weekdayShort(d.weekday), style: TextStyle(fontSize:11, fontWeight: FontWeight.w500, color: selected?Colors.white70:Colors.grey[600])),
-                  const SizedBox(height:4),
-                  Text('${d.day}', style: TextStyle(fontSize:18,fontWeight: FontWeight.bold, color:selected?Colors.white:Colors.black87)),
-                ],
-              ),
+  height: 110,
+      child: PageView.builder(
+        controller: _weekController,
+        onPageChanged: (page) {
+          final delta = page - _currentWeekPage;
+            if (delta != 0) {
+              final weekdayOffset = _selectedDay.weekday - 1; // 0-based
+              setState(() {
+                _weekAnchorMonday = _weekAnchorMonday.add(Duration(days: 7 * delta));
+                _selectedDay = _weekAnchorMonday.add(Duration(days: weekdayOffset));
+                _currentWeekPage = page;
+              });
+              _buildEntries();
+            }
+        },
+        itemBuilder: (context, pageIndex) {
+          final weekOffset = pageIndex - _currentWeekPage;
+          final displayWeekStart = _weekAnchorMonday.add(Duration(days: 7 * weekOffset));
+          final days = List.generate(7, (i) => displayWeekStart.add(Duration(days: i)));
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [for (final d in days) _buildDayTile(d)],
+                ),
+                const SizedBox(height:8),
+                // handle bar indicator mimic
+                Container(
+                  width: 56,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                )
+              ],
             ),
           );
         },
-        separatorBuilder: (_, __) => const SizedBox(width:8),
-        itemCount: daysInMonth,
       ),
     );
+  }
+
+  Widget _buildDayTile(DateTime d) {
+    final selected = d.year == _selectedDay.year && d.month == _selectedDay.month && d.day == _selectedDay.day;
+    return GestureDetector(
+      onTap: () {
+        _changeDay(d);
+        _weekAnchorMonday = _startOfWeek(d);
+        _animateWeekToSelected();
+        _syncMonthPageToSelected();
+      },
+      child: Container(
+        width: 52,
+        decoration: BoxDecoration(
+          color: selected ? Theme.of(context).colorScheme.primary : Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withValues(alpha: .05), blurRadius: selected?12:4, offset: const Offset(0, 3))
+          ],
+          border: Border.all(color: selected ? Theme.of(context).colorScheme.primary : Colors.transparent),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('${d.day}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: selected ? Colors.white : Colors.black87)),
+            const SizedBox(height:4),
+            // Placeholder dots row (max 3) to mimic med markers
+            SizedBox(
+              height: 10,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(3, (i) => Container(
+                  width: 5,
+                  height: 5,
+                  margin: const EdgeInsets.symmetric(horizontal:2),
+                  decoration: BoxDecoration(
+                    color: i==0? (selected? Colors.white : Theme.of(context).colorScheme.primary): Colors.orangeAccent,
+                    shape: BoxShape.circle,
+                  ),
+                )),
+              ),
+            ),
+            const SizedBox(height:6),
+            Text(_weekdayShort(d.weekday), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: selected ? Colors.white70 : Colors.grey[600])),
+          ],
+        ),
+      ),
+    );
+  }
+
+  DateTime _startOfWeek(DateTime d) {
+    // Treat Monday as start of week
+    final weekday = d.weekday; // Mon=1
+    return DateTime(d.year, d.month, d.day).subtract(Duration(days: weekday - 1));
+  }
+
+  void _animateWeekToSelected() {
+    if (!_weekController.hasClients) return;
+    // Always keep selected week at center page for simplicity; jump instead of animate for snappy navigation
+    _currentWeekPage = _weekCenterPage;
+    _weekController.jumpToPage(_weekCenterPage);
+  }
+
+  void _syncMonthPageToSelected() {
+    if (!_monthPageController.hasClients) return;
+    final idx = _monthWindow.indexWhere((m) => m.year == _selectedDay.year && m.month == _selectedDay.month);
+    if (idx != -1 && _monthPageController.page?.round() != idx) {
+      _monthPageController.animateToPage(idx, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    }
   }
 
   Widget _buildTimeline() {
@@ -227,8 +328,8 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   Widget build(BuildContext context) {
     final provider = context.watch<MedicationsProvider>();
     return Scaffold(
-      appBar: AppBar(
-        title: devTitle(context, 'medications_list_v2_screen.dart', const Text('Medications')),
+      appBar: HiDocAppBar(
+        pageTitle: 'Medications',
         actions: [IconButton(icon: const Icon(Icons.add), onPressed: _openWizard)],
       ),
       floatingActionButton: (_showLoading || provider.loading)

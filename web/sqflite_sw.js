@@ -3533,7 +3533,7 @@ o=J.bl(t.k.b(a4)?a4:new A.ae(a4,A.W(a4).h("ae<1,C>")))
 q=3
 s=typeof a5=="string"?6:8
 break
-case 6:o.postMessage(a5)
+case 6:o.postMessage(a5==null?{_null:true}:a5)
 s=7
 break
 case 8:s=t.j.b(a5)?9:11
@@ -3544,13 +3544,13 @@ l=A.M(J.b5(m,"key"))
 k=J.b5(m,"value")
 A.aw($.dP+" "+A.o(n)+" "+A.o(l)+": "+A.o(k))
 $.nw.l(0,l,k)
-o.postMessage(null)}else if(J.a1(n,"varGet")){j=t.f.a(J.b5(a5,1))
+o.postMessage({_null:true})}else if(J.a1(n,"varGet")){j=t.f.a(J.b5(a5,1))
 i=A.M(J.b5(j,"key"))
 h=$.nw.j(0,i)
 A.aw($.dP+" "+A.o(n)+" "+A.o(i)+": "+A.o(h))
 a4=t.N
 o.postMessage(A.i3(A.ah(["result",A.ah(["key",i,"value",h],a4,t.X)],a4,t.e)))}else{A.aw($.dP+" "+A.o(n)+" unknown")
-o.postMessage(null)}s=10
+o.postMessage({_null:true})}s=10
 break
 case 11:s=t.f.b(a5)?12:14
 break
@@ -3602,11 +3602,11 @@ break
 case 24:s=16
 break
 case 17:A.aw($.dP+" "+a5.i(0)+" unknown")
-o.postMessage(null)
+o.postMessage({_null:true})
 case 16:s=13
 break
 case 14:A.aw($.dP+" "+A.o(a5)+" map unknown")
-o.postMessage(null)
+o.postMessage({_null:true})
 case 13:case 10:case 7:q=1
 s=5
 break
@@ -3615,7 +3615,7 @@ a7=p.pop()
 b=A.N(a7)
 a=A.ak(a7)
 A.aw($.dP+" error caught "+A.o(b)+" "+A.o(a))
-o.postMessage(null)
+o.postMessage({_null:true})
 s=5
 break
 case 2:s=1

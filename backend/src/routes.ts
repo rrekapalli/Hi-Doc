@@ -1844,7 +1844,16 @@ router.post('/api/messages/reprocess-failed', async (req: Request, res: Response
 // --- Generic (read-only) data browsing endpoints for UI Data page ---
 // NOTE: These are development convenience endpoints; consider securing or removing in production.
 const BROWSABLE_TABLES = [
-  'activities', 'health_data', 'medications', 'messages', 'param_targets', 'reminders', 'reports'
+  'activities',
+  'health_data',
+  'medications',
+  'medication_schedules',
+  'medication_schedule_times',
+  'medication_intake_logs',
+  'messages',
+  'param_targets',
+  'reminders',
+  'reports'
 ];
 
 router.get('/api/admin/tables', (_req: Request, res: Response) => {

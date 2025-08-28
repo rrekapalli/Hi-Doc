@@ -17,7 +17,7 @@ class MedicationsRepository {
     String? url,
   }) async {
     final med = Medication.create(userId: userId, profileId: profileId, name: name, notes: notes, url: url);
-    await db.createMedicationV2(med.toDb());
+  await db.createMedication(med.toDb());
     return med;
   }
 

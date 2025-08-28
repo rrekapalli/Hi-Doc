@@ -14,174 +14,27 @@ class EditMedicationScreen extends StatefulWidget {
   State<EditMedicationScreen> createState() => _EditMedicationScreenState();
 }
 
-class _EditMedicationScreenState extends State<EditMedicationScreen> {
-  final _formKey = GlobalKey<FormState>();
-  late TextEditingController _nameController;
-  late TextEditingController _doseController;
-  late TextEditingController _doseUnitController;
-  late TextEditingController _frequencyController;
-  late String _scheduleType;
-  DateTime? _fromDate;
-  DateTime? _toDate;
-  
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: widget.medication['name'] as String);
-    _doseController = TextEditingController(text: (widget.medication['dose']?.toString() ?? ''));
-    _doseUnitController = TextEditingController(text: widget.medication['dose_unit'] as String?);
-    _frequencyController = TextEditingController(
-      text: (widget.medication['frequency_per_day']?.toString() ?? '')
-    );
-    _scheduleType = widget.medication['schedule_type'] as String? ?? 'fixed';
-    
-    if (widget.medication['from_date'] != null) {
-      _fromDate = DateTime.fromMillisecondsSinceEpoch(widget.medication['from_date'] as int);
-    }
-    if (widget.medication['to_date'] != null) {
-      _toDate = DateTime.fromMillisecondsSinceEpoch(widget.medication['to_date'] as int);
-    }
-  }
-  
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _doseController.dispose();
-    _doseUnitController.dispose();
-    _frequencyController.dispose();
-    super.dispose();
-  }
+// Deprecated legacy editor retained as stub to avoid import errors. Redirect users to MedicationWizardScreen.
+import 'medication_wizard_screen.dart';
 
-  Future<void> _selectDate(BuildContext context, bool isFromDate) async {
-    if (_scheduleType != 'fixed') return;
-    
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: isFromDate 
-          ? _fromDate ?? DateTime.now()
-          : _toDate ?? ((_fromDate ?? DateTime.now()).add(const Duration(days: 7))),
-      firstDate: isFromDate ? DateTime(2020) : (_fromDate ?? DateTime(2020)),
-      lastDate: DateTime(2100),
-    );
-
-    if (picked != null) {
-      setState(() {
-        if (isFromDate) {
-          _fromDate = picked;
-          // If to date is before from date, update it
-          if (_toDate != null && _toDate!.isBefore(_fromDate!)) {
-            _toDate = _fromDate!.add(const Duration(days: 7));
-          }
-        } else {
-          _toDate = picked;
-        }
-      });
-    }
-  }
-
-  Future<void> _saveMedication() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    try {
-      final db = context.read<DatabaseService>();
-      
-      if (_nameController.text.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter medication name')),
-        );
-        return;
-      }
-      final dosage = _doseController.text.isNotEmpty && _doseUnitController.text.isNotEmpty
-          ? '${_doseController.text} ${_doseUnitController.text}'.trim()
-          : null;
-          
-      final medicationData = {
-        'id': widget.medication['id'],
-        'user_id': 'prototype-user-12345',  // Using the hardcoded prototype user
-        'name': _nameController.text,
-        'dosage': dosage,
-        'frequency_per_day': int.tryParse(_frequencyController.text),
-        'schedule_type': _scheduleType,
-        'from_date': _scheduleType == 'fixed' ? _fromDate?.millisecondsSinceEpoch : null,
-        'to_date': _scheduleType == 'fixed' ? _toDate?.millisecondsSinceEpoch : null,
-        'is_deleted': 0,
-      };
-
-      await db.updateMedication(medicationData);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Medication updated successfully')),
-        );
-        Navigator.of(context).pop(true); // true indicates successful update
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update medication: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-    }
-  }
-
+class EditMedicationScreen extends StatelessWidget {
+  final Map<String, dynamic> medication;
+  const EditMedicationScreen({super.key, required this.medication});
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Edit Medication'),
-        actions: [
-          TextButton(
-            onPressed: _saveMedication,
-            child: const Text('Save'),
-          ),
-        ],
+    return MedicationWizardScreen(
+      editMedication: Medication(
+        id: medication['id'] as String,
+        userId: 'prototype-user-12345',
+        profileId: 'default-profile',
+        name: medication['name'] as String? ?? '',
+        notes: medication['dosage'] as String?,
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            TextFormField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Medication Name',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter medication name';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: TextFormField(
-                    controller: _doseController,
-                    decoration: const InputDecoration(
-                      labelText: 'Dose',
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: TextInputType.number,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: TextFormField(
-                    controller: _doseUnitController,
-                    decoration: const InputDecoration(
-                      labelText: 'Unit',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-              ],
+    );
+  }
+}
             ),
             const SizedBox(height: 16),
             TextFormField(

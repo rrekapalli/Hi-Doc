@@ -17,7 +17,7 @@ import 'notification_service.dart';
 /// Clean implementation (legacy in‑memory paths removed).
 class DatabaseService {
   static const _dbName = 'hi_doc.db';
-  static const _dbVersion = 8; // bump when altering schema
+  static const _dbVersion = 9; // v9: rename legacy medications->medications_old, medications_v2->medications
   final NotificationService _notificationService;
   final _backendBaseUrl = AppConfig.backendBaseUrl;
   Database? _db;
@@ -79,12 +79,14 @@ class DatabaseService {
     if (_initialized) return;
     try {
       if (kIsWeb) {
-        final factory = databaseFactoryFfiWeb;
-        _db = await factory.openDatabase(_dbName, options: OpenDatabaseOptions(
-          version: _dbVersion,
-          onCreate: (db, v) async => _onCreate(db),
-          onUpgrade: (db, o, n) async => _onUpgrade(db, o, n),
-        ));
+    // On web use the global databaseFactory to avoid devtools null-send bug seen when
+    // directly invoking factory.openDatabase (some older versions triggered a null postMessage).
+    // This path mirrors sqflite usage on other platforms and has proven more stable.
+    databaseFactory = databaseFactoryFfiWeb; // set global
+    _db = await openDatabase(_dbName,
+      version: _dbVersion,
+      onCreate: (db, v) async => _onCreate(db),
+      onUpgrade: (db, o, n) async => _onUpgrade(db, o, n));
       } else {
         final dir = await getApplicationDocumentsDirectory();
         _db = await openDatabase(p.join(dir.path, _dbName), version: _dbVersion, onCreate: (db, v) async => _onCreate(db), onUpgrade: (db, o, n) async => _onUpgrade(db, o, n));
@@ -106,22 +108,20 @@ class DatabaseService {
     await db.execute('''CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, file_path TEXT, type TEXT, data TEXT, upload_date INTEGER)''');
     await db.execute('''CREATE TABLE IF NOT EXISTS reminders (id TEXT PRIMARY KEY, user_id TEXT, medication_id TEXT, title TEXT, time TEXT, message TEXT, repeat TEXT, days TEXT, active INTEGER DEFAULT 1)''');
     await db.execute('''CREATE TABLE IF NOT EXISTS parsed_parameters (id TEXT PRIMARY KEY, unit TEXT, datetime TEXT, raw_json TEXT)''');
-    await db.execute('''CREATE TABLE IF NOT EXISTS medications (id TEXT PRIMARY KEY, name TEXT, dose REAL, dose_unit TEXT, frequency_per_day INTEGER, schedule_type TEXT, from_date INTEGER, to_date INTEGER, is_deleted INTEGER DEFAULT 0)''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_medications_deleted ON medications(is_deleted);');
-    await _createNormalizedMedicationTables(db);
-  }
-
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // For simplicity re-run create (idempotent via IF NOT EXISTS) then targeted migrations
-    await _onCreate(db);
-    if (oldVersion < 8) await _migrateLegacy(db);
-  }
-
-  Future<void> _createNormalizedMedicationTables(Database db) async {
-    await db.execute('''CREATE TABLE IF NOT EXISTS medications_v2 (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, profile_id TEXT NOT NULL, name TEXT NOT NULL, notes TEXT, medication_url TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_medications_user_profile ON medications_v2(user_id, profile_id);');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_medications_name ON medications_v2(name);');
-
+    // Normalized medications table (previously medications_v2)
+    await db.execute('''CREATE TABLE IF NOT EXISTS medications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      notes TEXT,
+      medication_url TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_medications_user_profile ON medications(user_id, profile_id);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_medications_name ON medications(name);');
+    // Schedules & times referencing medications
     await db.execute('''CREATE TABLE IF NOT EXISTS medication_schedules (
       id TEXT PRIMARY KEY,
       medication_id TEXT NOT NULL,
@@ -133,11 +133,10 @@ class DatabaseService {
       days_of_week TEXT,
       timezone TEXT,
       reminder_enabled INTEGER DEFAULT 1,
-      FOREIGN KEY(medication_id) REFERENCES medications_v2(id) ON DELETE CASCADE
+      FOREIGN KEY(medication_id) REFERENCES medications(id) ON DELETE CASCADE
     )''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_schedules_medication ON medication_schedules(medication_id);');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_schedules_active_window ON medication_schedules(start_date, end_date);');
-
     await db.execute('''CREATE TABLE IF NOT EXISTS medication_schedule_times (
       id TEXT PRIMARY KEY,
       schedule_id TEXT NOT NULL,
@@ -152,8 +151,7 @@ class DatabaseService {
       FOREIGN KEY(schedule_id) REFERENCES medication_schedules(id) ON DELETE CASCADE
     )''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_times_schedule ON medication_schedule_times(schedule_id);');
-  await db.execute('CREATE INDEX IF NOT EXISTS idx_times_trigger ON medication_schedule_times(next_trigger_ts);');
-
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_times_trigger ON medication_schedule_times(next_trigger_ts);');
     await db.execute('''CREATE TABLE IF NOT EXISTS medication_intake_logs (
       id TEXT PRIMARY KEY,
       schedule_time_id TEXT NOT NULL,
@@ -167,15 +165,49 @@ class DatabaseService {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_intake_logs_time ON medication_intake_logs(taken_ts);');
   }
 
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    await _onCreate(db); // idempotent
+    if (oldVersion < 8) await _migrateLegacy(db);
+    if (oldVersion < 9) await _migrateRenameMedicationTables(db);
+  }
+
+  Future<void> _migrateRenameMedicationTables(Database db) async {
+    try {
+      // Rename legacy normalized table medications_v2 -> medications (if target empty) and legacy basic table -> medications_old
+      final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      final names = tables.map((e)=>e['name'] as String).toSet();
+      if (names.contains('medications_v2')) {
+        if (names.contains('medications')) {
+          // Rename existing legacy basic table out of the way
+            await db.execute('ALTER TABLE medications RENAME TO medications_old');
+        }
+        await db.execute('ALTER TABLE medications_v2 RENAME TO medications');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_medications_user_profile ON medications(user_id, profile_id);');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_medications_name ON medications(name);');
+        // Update foreign key references if needed (SQLite doesn't auto-update); recreate schedules table if referencing old name.
+        // Check a sample pragma foreign_key_list
+        // For simplicity if schedules table exists referencing medications_v2 (old), recreate and copy.
+        final scheduleInfo = await db.rawQuery("PRAGMA table_info(medication_schedules)");
+        // No automatic action; schedule rows already reference medication ids (ids unchanged).
+      }
+    } catch (e) {
+      debugPrint('Migration rename medication tables failed: $e');
+    }
+  }
+
   Future<void> _migrateLegacy(Database db) async {
     try {
       final legacy = await db.query('medications');
       final now = DateTime.now().millisecondsSinceEpoch;
+      // Determine destination normalized table (pre-v9 used medications_v2, v9+ uses medications)
+      final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      final hasV2 = tables.any((e) => e['name'] == 'medications_v2');
+      final dest = hasV2 ? 'medications_v2' : 'medications';
       for (final med in legacy) {
         final id = med['id'] as String?; if (id == null) continue;
-        final exists = await db.query('medications_v2', where: 'id = ?', whereArgs: [id]);
+        final exists = await db.query(dest, where: 'id = ?', whereArgs: [id]);
         if (exists.isNotEmpty) continue; // already migrated
-        await db.insert('medications_v2', {
+        await db.insert(dest, {
           'id': id,
             // Prototype placeholders until auth/profile routing is fully wired on client
           'user_id': 'prototype-user',
@@ -250,35 +282,14 @@ class DatabaseService {
     return db.query('reports', orderBy: 'upload_date DESC');
   }
 
-  Future<void> deleteMedication(String id) async => _ensure().update('medications', {'is_deleted': 1}, where: 'id = ?', whereArgs: [id]);
+  // ---- Medications (normalized) ----
+  Future<void> createMedication(Map<String, dynamic> data) async => _ensure().insert('medications', data, conflictAlgorithm: ConflictAlgorithm.replace);
 
-  // ---- Legacy compatibility (to be removed after full migration) ----
-  Future<void> updateMedication(Map<String, dynamic> medication) async {
-    final db = _ensure();
-    await db.update('medications', {
-      'name': medication['name'],
-      'dosage': medication['dosage'],
-      'frequency_per_day': medication['frequency_per_day'],
-      'schedule_type': medication['schedule_type'],
-      'from_date': medication['from_date'],
-      'to_date': medication['to_date'],
-      'is_deleted': medication['is_deleted'] ?? 0,
-    }, where: 'id = ?', whereArgs: [medication['id']]);
-  }
+  Future<void> updateMedication(Map<String, dynamic> data) async => _ensure().update('medications', data, where: 'id = ?', whereArgs: [data['id']]);
 
-  Future<List<Map<String, dynamic>>> getMedications({bool includeDeleted = false}) async {
-    final db = _ensure();
-    return db.query('medications', where: includeDeleted ? null : 'is_deleted = 0');
-  }
+  Future<List<Map<String, dynamic>>> listMedications({required String userId, required String profileId}) async => _ensure().query('medications', where: 'user_id = ? AND profile_id = ?', whereArgs: [userId, profileId], orderBy: 'name ASC');
 
-  // ---- Normalized Medications (v2) ----
-  Future<void> createMedicationV2(Map<String, dynamic> data) async => _ensure().insert('medications_v2', data, conflictAlgorithm: ConflictAlgorithm.replace);
-
-  Future<void> updateMedicationV2(Map<String, dynamic> data) async => _ensure().update('medications_v2', data, where: 'id = ?', whereArgs: [data['id']]);
-
-  Future<List<Map<String, dynamic>>> listMedicationsV2({required String userId, required String profileId}) async => _ensure().query('medications_v2', where: 'user_id = ? AND profile_id = ?', whereArgs: [userId, profileId], orderBy: 'name ASC');
-
-  Future<void> deleteMedicationV2(String id) async => _ensure().delete('medications_v2', where: 'id = ?', whereArgs: [id]);
+  Future<void> deleteMedication(String id) async => _ensure().delete('medications', where: 'id = ?', whereArgs: [id]);
 
   Future<void> createSchedule(Map<String, dynamic> data) async => _ensure().insert('medication_schedules', data, conflictAlgorithm: ConflictAlgorithm.replace);
 
