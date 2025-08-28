@@ -7,9 +7,9 @@ part of 'report.dart';
 // **************************************************************************
 
 Report _$ReportFromJson(Map<String, dynamic> json) => Report(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
-  profileId: json['profile_id'] as String? ?? json['conversation_id'] as String?,
+  id: json['id'] as String,
+  userId: json['user_id'] as String,
+  profileId: json['profile_id'] as String?,
       filePath: json['file_path'] as String,
       fileType: $enumDecode(_$ReportFileTypeEnumMap, json['file_type']),
       source: $enumDecode(_$ReportSourceEnumMap, json['source']),

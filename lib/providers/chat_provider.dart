@@ -183,7 +183,7 @@ class ChatProvider extends ChangeNotifier {
           final processed = item['processed'] as int? ?? 0;
           final interpretationJson = item['interpretation_json'] as String?;
           // Get profile_id from backend data (fallback legacy key)
-          final msgConversationId = item['profile_id'] as String? ?? item['conversation_id'] as String? ?? targetProfileId; // legacy fallback
+          final msgConversationId = item['profile_id'] as String? ?? targetProfileId;
 
           if (content != null && content.isNotEmpty) {
             if (role == 'user') {

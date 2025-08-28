@@ -374,7 +374,7 @@ class ReportsService {
     return Report(
       id: json['id'],
       userId: json['user_id'],
-  profileId: json['profile_id'] ?? json['conversation_id'],
+      profileId: json['profile_id'],
       filePath: filePath ?? '',
       fileType: _parseFileType(typeStr, filePath: filePath, originalName: originalName),
       source: _parseSource(json['source']),

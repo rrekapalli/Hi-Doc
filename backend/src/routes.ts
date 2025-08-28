@@ -366,32 +366,20 @@ const runtimeDebug: { db:boolean; ai:boolean } = {
   db: process.env.DEBUG_DB === '1',
   ai: process.env.DEBUG_AI === '1',
 };
-// Detect legacy messages schema variants (conversation_id vs profile_id)
-let _messagesSchemaChecked = false;
-let _hasConversationIdCol = false;
-let _hasProfileIdCol = false;
-function ensureMessagesSchemaMeta() {
-  if (_messagesSchemaChecked) return;
-  try {
-    const cols = db.prepare('PRAGMA table_info(messages)').all() as any[];
-    _hasConversationIdCol = cols.some(c => c.name === 'conversation_id');
-    _hasProfileIdCol = cols.some(c => c.name === 'profile_id');
-  } catch (_) {}
-  _messagesSchemaChecked = true;
-}
-
+// Simplified: canonical messages schema only (profile_id, no conversation_id)
 function insertMessageRecord({ id, profileId, userId, role, content, createdAt, processed = 0 }: { id:string; profileId:string; userId:string; role:string; content:string; createdAt:number; processed?:number; }) {
-  ensureMessagesSchemaMeta();
-  // Legacy table had conversation_id NOT NULL. New table uses profile_id. Some migrated tables may have both.
-  if (_hasConversationIdCol && !_hasProfileIdCol) {
-    db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,?)')
-      .run(id, profileId, userId, role, content, createdAt, processed);
-  } else if (_hasConversationIdCol && _hasProfileIdCol) {
-    db.prepare('INSERT INTO messages (id, conversation_id, profile_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,?,?)')
-      .run(id, profileId, profileId, userId, role, content, createdAt, processed);
-  } else {
+  try {
     db.prepare('INSERT INTO messages (id, profile_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,?)')
       .run(id, profileId, userId, role, content, createdAt, processed);
+  } catch (e: any) {
+    if (/FOREIGN KEY constraint failed/i.test(String(e.message))) {
+      try {
+        const existingProfile = db.prepare('SELECT id FROM profiles WHERE id = ?').get(profileId);
+        const existingUser = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+        logger.error('Foreign key failure inserting message', { profileId, userId, hasProfile: !!existingProfile, hasUser: !!existingUser });
+      } catch {}
+    }
+    throw e;
   }
 }
 
@@ -1312,13 +1300,21 @@ router.get('/api/medications', (req: Request, res: Response) => {
   const activeOnly = req.query.active === 'true';
   const rows = db.prepare('SELECT * FROM medications WHERE user_id = ?').all(userId)
     .filter((r: any) => !activeOnly || r.is_forever === 1 || (r.duration_days && r.start_date && (Date.now() - r.start_date) / 86400000 <= r.duration_days));
+  res.setHeader('Cache-Control', 'no-store');
   res.json(rows);
 });
 
 router.delete('/api/medications/:id', (req: Request, res: Response) => {
   const userId = (req as any).userId;
-  const info = db.prepare('DELETE FROM medications WHERE id = ? AND user_id = ?').run(req.params.id, userId);
-  if (info.changes === 0) return res.status(404).json({ error: 'not found' });
+  const id = req.params.id;
+  const existing = db.prepare('SELECT * FROM medications WHERE id = ? AND user_id = ?').get(id, userId);
+  if (!existing) {
+    logger.warn('Delete medication: not found', { id, userId });
+    return res.status(404).json({ error: 'not found' });
+  }
+  const info = db.prepare('DELETE FROM medications WHERE id = ? AND user_id = ?').run(id, userId);
+  logger.info('Delete medication attempt', { id, userId, changes: info.changes });
+  if (info.changes === 0) return res.status(404).json({ error: 'not found (race?)' });
   res.status(204).end();
 });
 

@@ -51,7 +51,7 @@ class Activity {
     return Activity(
       id: json['id'] as String,
       userId: json['user_id'] as String? ?? 'unknown-user',
-  profileId: json['profile_id'] as String? ?? json['conversation_id'] as String? ?? 'default-profile',
+  profileId: json['profile_id'] as String? ?? 'default-profile',
       name: json['name'] as String? ?? 'Activity',
       durationMinutes: json['duration_minutes'] is int ? json['duration_minutes'] as int : int.tryParse('${json['duration_minutes']}'),
       distanceKm: _toDouble(json['distance_km']),

@@ -74,8 +74,7 @@ class ProfileMessage {
   factory ProfileMessage.fromMap(Map<String, dynamic> map) {
     return ProfileMessage(
       id: map['id'] as String,
-      profileId:
-          map['profile_id'] as String? ?? map['conversation_id'] as String, // legacy fallback
+  profileId: map['profile_id'] as String,
       senderId: map['sender_id'] as String,
       senderName: map['sender_name'] as String? ?? 'Unknown',
       role: map['role'] as String,
