@@ -28,44 +28,129 @@ class _TrendsScreenState extends State<TrendsScreen> with AutomaticKeepAliveClie
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    return const _TrendsScaffold();
+  }
+}
+
+class _TrendsScaffold extends StatefulWidget {
+  const _TrendsScaffold();
+  @override
+  State<_TrendsScaffold> createState() => _TrendsScaffoldState();
+}
+
+class _TrendsScaffoldState extends State<_TrendsScaffold> {
+  final _controller = TextEditingController();
+  final _scrollController = ScrollController();
+  bool _submitting = false;
+
+  Future<void> _submit(BuildContext context) async {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    setState(() { _submitting = true; });
+    final tp = context.read<TrendsProvider>();
+    final parsed = await tp.runNaturalLanguageQuery(text);
+    setState(() { _submitting = false; });
+    if (parsed.error == null) {
+      // Scroll to top where chart lives
+      if (_scrollController.hasClients) {
+        await _scrollController.animateTo(0, duration: const Duration(milliseconds: 400), curve: Curves.easeOut);
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(parsed.hint ?? 'Could not parse query')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       appBar: const HiDocAppBar(pageTitle: 'Trends'),
       body: Consumer<TrendsProvider>(
         builder: (context, tp, _) {
           if (tp.isLoadingTypes && tp.types.isEmpty) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (tp.typesError != null && tp.types.isEmpty) {
-            return Center(child: Text('Failed to load indicators: ${tp.typesError}'));
-          }
-          if (tp.types.isEmpty) {
-            return const Center(child: Text('No health readings yet.'));
-          }
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        value: tp.selectedType,
-                        items: tp.types.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                        onChanged: tp.setSelectedType,
-                        decoration: const InputDecoration(labelText: 'Indicator'),
-                      ),
+            if (tp.typesError != null && tp.types.isEmpty) {
+              return Center(child: Text('Failed to load indicators: ${tp.typesError}'));
+            }
+            if (tp.types.isEmpty) {
+              return const Center(child: Text('No health readings yet.'));
+            }
+            return Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    controller: _scrollController,
+                    padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 180),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 12),
+                        _RangeChips(
+                          selected: tp.range,
+                          onSelected: tp.setRange,
+                        ),
+                        if (tp.selectedType != null)
+                          IndicatorTrendCard(type: tp.selectedType!),
+                        const SizedBox(height: 20),
+                      ],
                     ),
-                  ],
+                  ),
+                ),
+                _ChatInput(
+                  controller: _controller,
+                  submitting: _submitting || tp.nlLoading,
+                  onSend: () => _submit(context),
+                  lastError: tp.nlError,
+                ),
+              ],
+            );
+        },
+      ),
+    );
+  }
+}
+
+class _ChatInput extends StatelessWidget {
+  final TextEditingController controller; final bool submitting; final VoidCallback onSend; final String? lastError;
+  const _ChatInput({required this.controller, required this.submitting, required this.onSend, required this.lastError});
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      top: false,
+      child: Material(
+        elevation: 8,
+        color: theme.colorScheme.surface,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  minLines: 1,
+                  maxLines: 3,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => onSend(),
+                  decoration: InputDecoration(
+                    hintText: "Ask for a trend (e.g., 'glucose last 90 days')",
+                    errorText: lastError,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
                 ),
               ),
-              _RangeChips(
-                selected: tp.range,
-                onSelected: tp.setRange,
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: submitting ? null : onSend,
+                icon: submitting ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send),
+                tooltip: 'Send',
               ),
-              Expanded(child: tp.selectedType == null ? const SizedBox() : IndicatorTrendCard(type: tp.selectedType!)),
             ],
-          );
-        },
+          ),
+        ),
       ),
     );
   }

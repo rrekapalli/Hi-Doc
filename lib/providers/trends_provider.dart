@@ -3,9 +3,12 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/trend_models.dart';
 import '../services/health_trends_service.dart';
+import '../services/trend_query_parser.dart';
+import '../models/trend_context_entry.dart';
 
 class TrendsProvider with ChangeNotifier {
   final HealthTrendsService service;
+  final TrendQueryParser _parser = TrendQueryParser();
   TrendsProvider({required this.service});
 
   static const _prefKeyLastType = 'trends.lastType';
@@ -18,7 +21,10 @@ class TrendsProvider with ChangeNotifier {
   String? _selectedType;
   TrendRange _range = TrendRange.d90;
   List<TrendPoint> _series = [];
+  // Multi-series support
+  final Map<String, List<TrendPoint>> _multiSeries = {}; // indicator -> points
   TargetRange? _target;
+  List<TrendContextEntry> _contextEntries = [];
   DateTime? _from;
   DateTime? _to;
   Timer? _debounce;
@@ -40,6 +46,8 @@ class TrendsProvider with ChangeNotifier {
   String? get selectedType => _selectedType;
   TrendRange get range => _range;
   List<TrendPoint> get series => _series;
+  Map<String, List<TrendPoint>> get multiSeries => _multiSeries;
+  List<TrendContextEntry> get contextEntries => _contextEntries;
   TargetRange? get target => _target;
   DateTime? get from => _from;
   DateTime? get to => _to;
@@ -118,7 +126,9 @@ class TrendsProvider with ChangeNotifier {
         data = await service.fetchSeries(type: type, from: from, to: now);
         _seriesCache[cacheKey] = data;
       }
-      _series = data;
+  _series = data;
+  _multiSeries.clear();
+  _multiSeries[type] = data;
       if (_targetCache.containsKey(type)) {
         _target = _targetCache[type];
       } else {
@@ -126,6 +136,7 @@ class TrendsProvider with ChangeNotifier {
         _targetCache[type] = _target;
       }
       _computeDerived();
+  _loadContextEntriesForPrimaryDay();
     } catch (e) {
       _seriesError = e.toString();
     } finally {
@@ -144,5 +155,58 @@ class TrendsProvider with ChangeNotifier {
     for (final u in units) { freq[u] = (freq[u] ?? 0) + 1; }
     _dominantUnit = freq.entries.reduce((a,b)=>a.value>=b.value?a:b).key;
     _mixedUnits = freq.length > 1;
+  }
+
+  // Natural language query handling
+  bool _nlLoading = false; String? _nlError; TrendQueryParseResult? _lastParse;
+  bool get nlLoading => _nlLoading; String? get nlError => _nlError; TrendQueryParseResult? get lastParse => _lastParse;
+
+  Future<TrendQueryParseResult> runNaturalLanguageQuery(String message) async {
+    _nlError = null; _nlLoading = true; notifyListeners();
+    try {
+      final parsed = _parser.parse(message);
+      _lastParse = parsed;
+      if (parsed.error != null) {
+        _nlError = parsed.hint ?? parsed.error;
+        return parsed;
+      }
+      // Fetch each indicator
+      _multiSeries.clear();
+      for (final ind in parsed.indicators) {
+        try {
+          final pts = await service.fetchSeries(type: ind, from: parsed.from, to: parsed.to);
+          _multiSeries[ind] = pts;
+        } catch (_) { _multiSeries[ind] = []; }
+      }
+      // Primary = first
+      final primary = parsed.indicators.first;
+      _selectedType = primary;
+      _from = parsed.from; _to = parsed.to;
+      _series = _multiSeries[primary] ?? [];
+      if (_targetCache.containsKey(primary)) {
+        _target = _targetCache[primary];
+      } else {
+        _target = await service.fetchTarget(primary);
+        _targetCache[primary] = _target;
+      }
+      _computeDerived();
+      _loadContextEntriesForPrimaryDay();
+      return parsed;
+    } catch (e) {
+      _nlError = e.toString();
+      return TrendQueryParseResult.failure('error', hint: e.toString());
+    } finally {
+      _nlLoading = false; notifyListeners();
+    }
+  }
+
+  // Placeholder: load contextual entries (food intake / meds) for the current FROM date only.
+  void _loadContextEntriesForPrimaryDay() {
+    if (_from == null || _to == null) { _contextEntries = []; return; }
+    final dayStart = DateTime(_to!.year, _to!.month, _to!.day); // focus on latest day in range
+    final dayEnd = dayStart.add(const Duration(days:1));
+    // TODO: Replace with real service call when endpoints exist.
+    // For now keep empty; structure ready.
+    _contextEntries = _contextEntries.where((e)=>e.timestamp.isAfter(dayStart) && e.timestamp.isBefore(dayEnd)).toList();
   }
 }
