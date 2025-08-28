@@ -1052,6 +1052,40 @@ router.post('/api/health-data/trend', (req: Request, res: Response) => {
   }
 });
 
+// List distinct health data types for current user (category filter optional)
+router.get('/api/health-data/types', (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id || (req as any).userId;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const category = (req.query.category as string) || 'HEALTH_PARAMS';
+    const rows = db.prepare('SELECT DISTINCT type FROM health_data WHERE user_id = ? AND (? IS NULL OR category = ?) ORDER BY type ASC')
+      .all(userId, category, category) as any[];
+    res.json(rows.map(r => r.type));
+  } catch (e:any) {
+    logger.error('health-data/types failed', { error: e.message });
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+// Time-series for a given type within range
+router.get('/api/health-data/series', (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id || (req as any).userId;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const type = req.query.type as string | undefined;
+    if (!type) return res.status(400).json({ error: 'type required' });
+    const fromMs = Number(req.query.from) || 0;
+    const toMs = Number(req.query.to) || Date.now();
+    const rows = db.prepare('SELECT timestamp, value, unit FROM health_data WHERE user_id = ? AND type = ? AND timestamp BETWEEN ? AND ? ORDER BY timestamp ASC')
+      .all(userId, type, fromMs, toMs) as any[];
+    const cleaned = rows.map(r => ({ timestamp: r.timestamp, value: r.value, unit: r.unit }));
+    res.json(cleaned);
+  } catch (e:any) {
+    logger.error('health-data/series failed', { error: e.message });
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
 // AI interpret + persist (requires auth). This does not change existing provisional local insert logic on the client;
 // it offers a backend mapping path so the AI output becomes a stored row.
 router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {

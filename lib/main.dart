@@ -7,6 +7,8 @@ import 'providers/auth_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/reports_provider.dart';
 import 'providers/activities_provider.dart';
+import 'providers/trends_provider.dart';
+import 'services/health_trends_service.dart';
 import 'services/database_service.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
@@ -67,6 +69,7 @@ class HiDocApp extends StatelessWidget {
           create: (context) => ActivitiesProvider(chatProvider: context.read<ChatProvider>()),
           update: (context, chat, previous) => previous ?? ActivitiesProvider(chatProvider: chat),
         ),
+  ChangeNotifierProvider(create: (context) => TrendsProvider(service: HealthTrendsService(context.read<AuthService>()))),
       ],
       child: Builder(builder: (context) {
         // Attach settings to chat provider (once)
