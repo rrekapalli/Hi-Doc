@@ -10,211 +10,229 @@ class IndicatorTrendCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      elevation: 3,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Consumer<TrendsProvider>(
-        builder: (context, tp, _) {
-          final theme = Theme.of(context);
-            if (tp.isLoadingSeries) {
-              return const SizedBox(height: 260, child: Center(child: CircularProgressIndicator()));
-            }
-            if (tp.seriesError != null) {
-              return SizedBox(height: 260, child: Center(child: Text('Failed to load: ${tp.seriesError}')));
-            }
-            final points = tp.series;
-            if (points.isEmpty) {
-              return const SizedBox(height: 260, child: Center(child: Text('No data in this period.')));
-            }
-            final target = tp.target;
-            final hasBand = target?.hasRange == true;
-            final minY = points.map((e) => e.value).reduce((a, b) => a < b ? a : b);
-            final maxY = points.map((e) => e.value).reduce((a, b) => a > b ? a : b);
-            final bandMin = hasBand ? target!.min!.toDouble() : null;
-            final bandMax = hasBand ? target!.max!.toDouble() : null;
-            final globalMin = hasBand ? [minY, bandMin!].reduce((a,b)=>a<b?a:b) : minY;
-            final globalMax = hasBand ? [maxY, bandMax!].reduce((a,b)=>a>b?a:b) : maxY;
-            final span = (globalMax - globalMin).abs();
-            final extra = span == 0 ? 1 : span * 0.1;
-            final primaryColor = theme.colorScheme.primary;
-            final headerColor = const Color(0xFF0C5E6D); // teal-like
-            final latest = points.last;
-            final classification = _classify(latest.value, target);
-            final classificationColor = {
-              'Low': Colors.red.shade400,
-              'High': Colors.deepOrange.shade400,
-              'Normal': Colors.green.shade600,
-              '—': Colors.grey.shade500,
-            }[classification] ?? theme.colorScheme.secondary;
+    return Consumer<TrendsProvider>(
+      builder: (context, tp, _) {
+        final theme = Theme.of(context);
+        // Early states use a single card
+        if (tp.isLoadingSeries) {
+          return _singleStateCard(const Center(child: CircularProgressIndicator()));
+        }
+        if (tp.seriesError != null) {
+          return _singleStateCard(Center(child: Text('Failed to load: ${tp.seriesError}')));
+        }
+        final points = tp.series;
+        if (points.isEmpty) {
+          return _singleStateCard(const Center(child: Text('No data in this period.')));
+        }
 
-            final bandColor = Colors.green.withOpacity(.18);
-            // Removed transparent band edge lines with rangeAnnotations approach
+        final target = tp.target;
+        final hasBand = target?.hasRange == true;
+        final minY = points.map((e) => e.value).reduce((a, b) => a < b ? a : b);
+        final maxY = points.map((e) => e.value).reduce((a, b) => a > b ? a : b);
+        final bandMin = hasBand ? target!.min!.toDouble() : null;
+        final bandMax = hasBand ? target!.max!.toDouble() : null;
+        final globalMin = hasBand ? [minY, bandMin!].reduce((a,b)=>a<b?a:b) : minY;
+        final globalMax = hasBand ? [maxY, bandMax!].reduce((a,b)=>a>b?a:b) : maxY;
+        final span = (globalMax - globalMin).abs();
+        final extra = span == 0 ? 1 : span * 0.1;
+        final primaryColor = theme.colorScheme.primary;
+        final latest = points.last;
+        final classification = _classify(latest.value, target);
+        final classificationColor = {
+          'Low': Colors.red.shade400,
+          'High': Colors.deepOrange.shade400,
+          'Normal': Colors.green.shade600,
+          '—': Colors.grey.shade600,
+        }[classification] ?? theme.colorScheme.secondary;
+        final bandColor = Colors.green.withOpacity(.18);
+        final multi = tp.multiSeries;
+        final otherKeys = multi.keys.where((k) => k != tp.selectedType).take(1).toList();
+        final secondKey = otherKeys.isNotEmpty ? otherKeys.first : null;
+        final second = secondKey != null ? multi[secondKey]! : null;
 
-            final multi = tp.multiSeries;
-            final otherKeys = multi.keys.where((k) => k != tp.selectedType).take(1).toList();
-            final secondKey = otherKeys.isNotEmpty ? otherKeys.first : null;
-            final second = secondKey != null ? multi[secondKey]! : null;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Header
-                Container(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-                  decoration: BoxDecoration(color: headerColor),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(tp.selectedType ?? type, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: .5)),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Text(latest.value.toStringAsFixed(0), style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: Colors.white)),
-                                const SizedBox(width: 8),
-                                Text(classification, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: classificationColor)),
-                              ],
-                            ),
-                            if (target?.preferredUnit != null)
-                              Text(target!.preferredUnit!, style: TextStyle(color: Colors.white.withOpacity(.85), fontSize: 12)),
-                          ],
-                        ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(_fullDate(latest.timestamp), style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(.9))),
-                          const SizedBox(height: 6),
-                          if (hasBand)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(color: Colors.white.withOpacity(.15), borderRadius: BorderRadius.circular(6)),
-                              child: Text('${bandMin!.toStringAsFixed(0)} - ${bandMax!.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11, color: Colors.white)),
-                            ),
-                        ],
-                      )
-                    ],
-                  ),
-                ),
-                // Chart + legend + caption + readings table
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 20, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(
-                        height: 220,
-                        child: LineChart(
-                          LineChartData(
-                            minY: globalMin - extra,
-                            maxY: globalMax + extra,
-                            gridData: FlGridData(
-                              show: true,
-                              drawVerticalLine: true,
-                              verticalInterval: points.length <= 1 ? 1 : (points.length / 4).ceilToDouble(),
-                              horizontalInterval: span == 0 ? 1 : span / 4,
-                              getDrawingHorizontalLine: (v) => FlLine(color: Colors.teal.withOpacity(0.08), strokeWidth: 1),
-                              getDrawingVerticalLine: (v) => FlLine(color: Colors.teal.withOpacity(0.05), strokeWidth: 1),
-                            ),
-                            titlesData: FlTitlesData(
-                              bottomTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true,
-                                  interval: (points.length / 4).ceilToDouble(),
-                                  getTitlesWidget: (v, meta) {
-                                    final i = v.toInt();
-                                    if (i < 0 || i >= points.length) return const SizedBox.shrink();
-                                    final dt = points[i].timestamp;
-                                    return Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Text(_formatDate(dt), style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-                                    );
-                                  },
-                                ),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Chart Card
+            Card(
+              color: Colors.white,
+              margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              elevation: 3,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Header (now on white background)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(tp.selectedType ?? type, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: .5)),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Text(latest.value.toStringAsFixed(0), style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: primaryColor)),
+                                  const SizedBox(width: 8),
+                                  Text(classification, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: classificationColor)),
+                                ],
                               ),
-                              leftTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true,
-                                  reservedSize: 40,
-                                  getTitlesWidget: (v, meta) => Text(v.toStringAsFixed(0), style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-                                ),
-                              ),
-                              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            ),
-                            lineTouchData: LineTouchData(
-                              touchTooltipData: LineTouchTooltipData(
-                                getTooltipItems: (spots) {
-                                  return spots.where((s) => s.barIndex == 0).map((s) {
-                                    final p = points[s.x.toInt()];
-                                    return LineTooltipItem(
-                                      '${_formatDate(p.timestamp)}\n${p.value.toStringAsFixed(2)} ${p.unit ?? target?.preferredUnit ?? ''}',
-                                      const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                                    );
-                                  }).toList();
-                                },
-                              ),
-                            ),
-                            rangeAnnotations: hasBand ? RangeAnnotations(
-                              horizontalRangeAnnotations: [
-                                HorizontalRangeAnnotation(y1: bandMin!, y2: bandMax!, color: bandColor),
-                              ],
-                            ) : const RangeAnnotations(),
-                            lineBarsData: [
-                              LineChartBarData(
-                                isCurved: true,
-                                curveSmoothness: 0.25,
-                                barWidth: 3,
-                                color: primaryColor,
-                                dotData: FlDotData(show: true, getDotPainter: (s, p, bar, i) => FlDotCirclePainter(radius: 3, color: Colors.white, strokeWidth: 2, strokeColor: primaryColor)),
-                                spots: [for (int i=0;i<points.length;i++) FlSpot(i.toDouble(), points[i].value)],
-                              ),
-                              if (second != null && second.isNotEmpty)
-                                LineChartBarData(
-                                  isCurved: false,
-                                  barWidth: 2,
-                                  color: Colors.orange,
-                                  dashArray: [6,4],
-                                  dotData: const FlDotData(show: false),
-                                  spots: [for (int i=0;i<second.length;i++) FlSpot(i.toDouble(), second[i].value)],
-                                ),
+                              if (target?.preferredUnit != null)
+                                Text(target!.preferredUnit!, style: const TextStyle(fontSize: 12, color: Colors.black54)),
                             ],
                           ),
                         ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(_fullDate(latest.timestamp), style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                            const SizedBox(height: 6),
+                            if (hasBand)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(color: bandColor.withOpacity(.55), borderRadius: BorderRadius.circular(6)),
+                                child: Text('${bandMin!.toStringAsFixed(0)} - ${bandMax!.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11, color: Colors.black87)),
+                              ),
+                          ],
+                        )
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 220,
+                      child: LineChart(
+                        LineChartData(
+                          minY: globalMin - extra,
+                          maxY: globalMax + extra,
+                          gridData: FlGridData(
+                            show: true,
+                            drawVerticalLine: true,
+                            verticalInterval: points.length <= 1 ? 1 : (points.length / 4).ceilToDouble(),
+                            horizontalInterval: span == 0 ? 1 : span / 4,
+                            getDrawingHorizontalLine: (v) => FlLine(color: Colors.teal.withOpacity(0.08), strokeWidth: 1),
+                            getDrawingVerticalLine: (v) => FlLine(color: Colors.teal.withOpacity(0.05), strokeWidth: 1),
+                          ),
+                          titlesData: FlTitlesData(
+                            bottomTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                interval: (points.length / 4).ceilToDouble(),
+                                getTitlesWidget: (v, meta) {
+                                  final i = v.toInt();
+                                  if (i < 0 || i >= points.length) return const SizedBox.shrink();
+                                  final dt = points[i].timestamp;
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(_formatDate(dt), style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                                  );
+                                },
+                              ),
+                            ),
+                            leftTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                reservedSize: 40,
+                                getTitlesWidget: (v, meta) => Text(v.toStringAsFixed(0), style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                              ),
+                            ),
+                            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          ),
+                          lineTouchData: LineTouchData(
+                            touchTooltipData: LineTouchTooltipData(
+                              getTooltipItems: (spots) {
+                                return spots.where((s) => s.barIndex == 0).map((s) {
+                                  final p = points[s.x.toInt()];
+                                  return LineTooltipItem(
+                                    '${_formatDate(p.timestamp)}\n${p.value.toStringAsFixed(2)} ${p.unit ?? target?.preferredUnit ?? ''}',
+                                    const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                  );
+                                }).toList();
+                              },
+                            ),
+                          ),
+                          rangeAnnotations: hasBand ? RangeAnnotations(
+                            horizontalRangeAnnotations: [
+                              HorizontalRangeAnnotation(y1: bandMin!, y2: bandMax!, color: bandColor),
+                            ],
+                          ) : const RangeAnnotations(),
+                          lineBarsData: [
+                            LineChartBarData(
+                              isCurved: true,
+                              curveSmoothness: 0.25,
+                              barWidth: 3,
+                              color: primaryColor,
+                              dotData: FlDotData(show: true, getDotPainter: (s, p, bar, i) => FlDotCirclePainter(radius: 3, color: Colors.white, strokeWidth: 2, strokeColor: primaryColor)),
+                              spots: [for (int i=0;i<points.length;i++) FlSpot(i.toDouble(), points[i].value)],
+                            ),
+                            if (second != null && second.isNotEmpty)
+                              LineChartBarData(
+                                isCurved: false,
+                                barWidth: 2,
+                                color: Colors.orange,
+                                dashArray: const [6,4],
+                                dotData: const FlDotData(show: false),
+                                spots: [for (int i=0;i<second.length;i++) FlSpot(i.toDouble(), second[i].value)],
+                              ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 16,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          _LegendDot(color: primaryColor, label: tp.selectedType ?? 'Reading'),
-                          if (secondKey != null) _LegendDot(color: Colors.orange, label: secondKey),
-                          if (hasBand)
-                            _LegendDot(color: bandColor.withOpacity(.8), label: 'Target range')
-                          else
-                            const Text('No target range available', style: TextStyle(fontSize: 12)),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      _Caption(tp: tp, secondKey: secondKey),
-                      const SizedBox(height: 16),
-                      _ReadingsTable(points: points, target: target),
-                      const SizedBox(height: 16),
-                      _ContextEntriesList(),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 16,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _LegendDot(color: primaryColor, label: tp.selectedType ?? 'Reading'),
+                        if (secondKey != null) _LegendDot(color: Colors.orange, label: secondKey),
+                        if (hasBand)
+                          _LegendDot(color: bandColor.withOpacity(.8), label: 'Target range')
+                        else
+                          const Text('No target range available', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    _Caption(tp: tp, secondKey: secondKey),
+                  ],
                 ),
-              ],
-            );
-          },
-      ),
+              ),
+            ),
+            // Table / Context Card
+            Card(
+              color: Colors.white,
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              elevation: 3,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _ReadingsTable(points: points, target: target),
+                    const SizedBox(height: 20),
+                    _ContextEntriesList(),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
+
+Widget _singleStateCard(Widget child) => Card(
+  color: Colors.white,
+  margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+  elevation: 3,
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+  child: SizedBox(height: 260, child: child),
+);
 
 class _Caption extends StatelessWidget {
   final TrendsProvider tp; final String? secondKey;
