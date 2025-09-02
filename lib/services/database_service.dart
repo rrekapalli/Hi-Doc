@@ -22,6 +22,8 @@ class DatabaseService {
   final _backendBaseUrl = AppConfig.backendBaseUrl;
   Database? _db;
   bool _initialized = false;
+  // Map temporary client-generated schedule IDs -> backend IDs (web only)
+  final Map<String, String> _scheduleIdMap = {};
 
   DatabaseService({required NotificationService notificationService}) : _notificationService = notificationService;
 
@@ -303,6 +305,28 @@ class DatabaseService {
   }
 
   // ---- Medications (normalized) ----
+  Future<void> _cacheMedicationLocal(Map<String, dynamic> row) async {
+    try {
+      if (!kIsWeb) return; // native already writes locally
+      final db = _ensure();
+      // Ensure required timestamps
+      row['created_at'] ??= DateTime.now().millisecondsSinceEpoch;
+      row['updated_at'] ??= DateTime.now().millisecondsSinceEpoch;
+      await db.insert('medications', {
+        'id': row['id'],
+        'user_id': row['user_id'],
+        'profile_id': row['profile_id'],
+        'name': row['name'],
+        'notes': row['notes'],
+        'medication_url': row['medication_url'],
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at'],
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[DB] cache medication failed: $e');
+    }
+  }
+
   Future<String> createMedication(Map<String, dynamic> data) async {
     if (kIsWeb) {
       // POST to backend (id created client-side so pass through)
@@ -317,6 +341,17 @@ class DatabaseService {
       // backend generates id; overwrite local id to keep provider consistent
       final id = (jsonDecode(r.body) as Map)['id'];
       data['id'] = id;
+      // Cache locally so Data Browser reflects it
+      await _cacheMedicationLocal({
+        'id': id,
+        'user_id': data['user_id'] ?? 'prototype-user',
+        'profile_id': data['profile_id'],
+        'name': data['name'],
+        'notes': data['notes'],
+        'medication_url': data['medication_url'],
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      });
       return id;
     } else {
       await _ensure().insert('medications', data, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -334,6 +369,16 @@ class DatabaseService {
       };
       final r = await http.put(Uri.parse('$_backendBaseUrl/api/medications/$id'), headers: await _getAuthHeaders(), body: jsonEncode(payload));
       if (r.statusCode != 200) throw Exception('Update medication failed ${r.statusCode}');
+      await _cacheMedicationLocal({
+        'id': id,
+        'user_id': data['user_id'] ?? 'prototype-user',
+        'profile_id': data['profile_id'],
+        'name': data['name'],
+        'notes': data['notes'],
+        'medication_url': data['medication_url'],
+        'created_at': data['created_at'],
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      });
     } else {
       await _ensure().update('medications', data, where: 'id = ?', whereArgs: [data['id']]);
     }
@@ -344,7 +389,12 @@ class DatabaseService {
       final uri = Uri.parse('$_backendBaseUrl/api/medications').replace(queryParameters: { 'profile_id': profileId });
       final r = await http.get(uri, headers: await _getAuthHeaders());
       if (r.statusCode != 200) throw Exception('List medications failed');
-      return List<Map<String,dynamic>>.from(jsonDecode(r.body) as List);
+      final list = List<Map<String,dynamic>>.from(jsonDecode(r.body) as List);
+      // Cache all to local DB
+      for (final m in list) {
+        await _cacheMedicationLocal(m);
+      }
+      return list;
     }
     return _ensure().query('medications', where: 'user_id = ? AND profile_id = ?', whereArgs: [userId, profileId], orderBy: 'name ASC');
   }
@@ -353,15 +403,17 @@ class DatabaseService {
     if (kIsWeb) {
       final r = await http.delete(Uri.parse('$_backendBaseUrl/api/medications/$id'), headers: await _getAuthHeaders());
       if (r.statusCode != 200) throw Exception('Delete medication failed');
+  try { await _ensure().delete('medications', where: 'id = ?', whereArgs: [id]); } catch (_) {}
     } else {
       await _ensure().delete('medications', where: 'id = ?', whereArgs: [id]);
     }
   }
 
   // --- Schedules / Times / Intake Logs (web -> backend HTTP, native -> local SQLite) ---
-  Future<void> createSchedule(Map<String, dynamic> data) async {
+  Future<String> createSchedule(Map<String, dynamic> data) async {
     if (kIsWeb) {
       final medId = data['medication_id'];
+      final localId = data['id'];
       final payload = {
         'schedule': data['schedule'],
         'frequencyPerDay': data['frequency_per_day'],
@@ -374,9 +426,15 @@ class DatabaseService {
       };
       final r = await http.post(Uri.parse('$_backendBaseUrl/api/medications/$medId/schedules'), headers: await _getAuthHeaders(), body: jsonEncode(payload));
       if (r.statusCode != 200) throw Exception('Create schedule failed');
-      data['id'] = (jsonDecode(r.body) as Map)['id'];
+      final newId = (jsonDecode(r.body) as Map)['id'];
+      data['id'] = newId;
+      if (localId != null && localId != newId) {
+        _scheduleIdMap[localId] = newId;
+      }
+      return data['id'] as String;
     } else {
       await _ensure().insert('medication_schedules', data, conflictAlgorithm: ConflictAlgorithm.replace);
+      return data['id'] as String;
     }
   }
 
@@ -424,9 +482,14 @@ class DatabaseService {
     final rows = await _ensure().query('medication_schedules', where: 'id = ?', whereArgs: [scheduleId], limit: 1); return rows.isEmpty ? null : rows.first;
   }
 
-  Future<void> createScheduleTime(Map<String, dynamic> data) async {
+  Future<String> createScheduleTime(Map<String, dynamic> data) async {
     if (kIsWeb) {
-      final scheduleId = data['schedule_id'];
+      var scheduleId = data['schedule_id'];
+      // Translate local temp schedule id to backend id if mapping exists
+      if (_scheduleIdMap.containsKey(scheduleId)) {
+        scheduleId = _scheduleIdMap[scheduleId];
+        data['schedule_id'] = scheduleId; // keep consistency if later cached locally
+      }
       final payload = {
         'timeLocal': data['time_local'],
         'dosage': data['dosage'],
@@ -439,8 +502,10 @@ class DatabaseService {
       final r = await http.post(Uri.parse('$_backendBaseUrl/api/schedules/$scheduleId/times'), headers: await _getAuthHeaders(), body: jsonEncode(payload));
       if (r.statusCode != 200) throw Exception('Create schedule time failed');
       data['id'] = (jsonDecode(r.body) as Map)['id'];
+      return data['id'] as String;
     } else {
       await _ensure().insert('medication_schedule_times', data, conflictAlgorithm: ConflictAlgorithm.replace);
+      return data['id'] as String;
     }
   }
 

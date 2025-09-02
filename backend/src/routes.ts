@@ -364,7 +364,20 @@ router.get('/api/medications', (req: Request, res: Response) => {
     const userId = req.user?.id;
     const profileId = (req.query.profile_id as string) || (req.query.profileId as string);
     if (!userId || !profileId) return res.status(400).json({ error: 'profile_id required' });
-    const rows = db.prepare(`SELECT * FROM medications WHERE user_id = ? AND profile_id = ? ORDER BY name ASC`).all(userId, profileId);
+    let rows = db.prepare(`SELECT * FROM medications WHERE user_id = ? AND profile_id = ? ORDER BY name ASC`).all(userId, profileId);
+    if (rows.length == 0) {
+      // Fallback: check legacy user id rows and migrate on the fly
+      const legacyUserId = 'prototype-user-12345';
+      const legacyRows = db.prepare(`SELECT * FROM medications WHERE user_id = ? AND profile_id = ? ORDER BY name ASC`).all(legacyUserId, profileId);
+      if (legacyRows.length > 0) {
+        logger.warn('Migrating legacy medication rows to canonical user id', { count: legacyRows.length, profileId });
+        const tx = db.transaction(() => {
+          db.prepare('UPDATE medications SET user_id = ? WHERE user_id = ?').run(userId, legacyUserId);
+        });
+        try { tx(); } catch (e) { logger.error('Legacy medication migration failed', { error: e }); }
+        rows = db.prepare(`SELECT * FROM medications WHERE user_id = ? AND profile_id = ? ORDER BY name ASC`).all(userId, profileId);
+      }
+    }
     res.json(rows);
   } catch (e) {
     logger.error('Error listing medications', e);
@@ -378,23 +391,36 @@ router.post('/api/medications', (req: Request, res: Response) => {
     const userId = req.user?.id;
     const { profileId, name, notes, medicationUrl } = req.body;
     if (!userId || !profileId || !name) return res.status(400).json({ error: 'profileId and name required' });
-    // Ensure normalized schema columns exist (created_at, updated_at); migrate legacy table if needed
+    // Ensure normalized schema columns exist (notes, medication_url, created_at, updated_at); add & backfill if needed
     try {
-      const cols = db.prepare("PRAGMA table_info(medications)").all() as any[];
-      const colNames = cols.map(c => c.name);
-      const missing: string[] = [];
-      if (!colNames.includes('created_at')) missing.push('created_at');
-      if (!colNames.includes('updated_at')) missing.push('updated_at');
+      const cols = db.prepare('PRAGMA table_info(medications)').all() as any[];
+      const colNames = new Set(cols.map(c => c.name as string));
+      const desired: Record<string,string> = {
+        notes: 'TEXT',
+        medication_url: 'TEXT',
+        created_at: 'INTEGER',
+        updated_at: 'INTEGER',
+      };
+      const missing = Object.keys(desired).filter(c => !colNames.has(c));
       if (missing.length > 0) {
-        logger.warn('Migrating legacy medications table to add missing columns', { missing });
+        logger.warn('Medications table missing columns; applying in-place migration', { missing });
         const tx = db.transaction(() => {
           for (const m of missing) {
-            try { db.prepare(`ALTER TABLE medications ADD COLUMN ${m} INTEGER`).run(); } catch (e) { logger.error('Add column failed', { column: m, error: e }); }
+            const type = desired[m];
+            try {
+              db.prepare(`ALTER TABLE medications ADD COLUMN ${m} ${type}`).run();
+            } catch (e) {
+              logger.error('Failed to add medications column', { column: m, error: e });
+            }
           }
-          // Backfill values
+          // Backfill timestamps only
           const now = Date.now();
-          if (missing.includes('created_at')) { db.prepare('UPDATE medications SET created_at = ? WHERE created_at IS NULL').run(now); }
-          if (missing.includes('updated_at')) { db.prepare('UPDATE medications SET updated_at = ? WHERE updated_at IS NULL').run(now); }
+            if (missing.includes('created_at')) {
+              db.prepare('UPDATE medications SET created_at = ? WHERE created_at IS NULL').run(now);
+            }
+            if (missing.includes('updated_at')) {
+              db.prepare('UPDATE medications SET updated_at = ? WHERE updated_at IS NULL').run(now);
+            }
         });
         tx();
       }

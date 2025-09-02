@@ -22,12 +22,42 @@ class MedicationsRepository {
   }
 
   Future<MedicationSchedule> addSchedule(Medication med, MedicationSchedule schedule) async {
-    await db.createSchedule(schedule.toDb());
+    final data = schedule.toDb();
+    final newId = await db.createSchedule(data);
+    if (newId != schedule.id) {
+      schedule = MedicationSchedule(
+        id: newId,
+        medicationId: schedule.medicationId,
+        schedule: schedule.schedule,
+        frequencyPerDay: schedule.frequencyPerDay,
+        isForever: schedule.isForever,
+        startDate: schedule.startDate,
+        endDate: schedule.endDate,
+        daysOfWeek: schedule.daysOfWeek,
+        timezone: schedule.timezone,
+        reminderEnabled: schedule.reminderEnabled,
+      );
+    }
     return schedule;
   }
 
   Future<MedicationScheduleTime> addScheduleTime(MedicationSchedule schedule, MedicationScheduleTime time) async {
-    await db.createScheduleTime(time.toDb());
+    final data = time.toDb();
+    final newId = await db.createScheduleTime(data);
+    if (newId != time.id) {
+      time = MedicationScheduleTime(
+        id: newId,
+        scheduleId: time.scheduleId,
+        timeLocal: time.timeLocal,
+        dosage: time.dosage,
+        doseAmount: time.doseAmount,
+        doseUnit: time.doseUnit,
+        instructions: time.instructions,
+        prn: time.prn,
+        sortOrder: time.sortOrder,
+        nextTriggerTs: time.nextTriggerTs,
+      );
+    }
     await reminderService.recomputeAndPersist(schedule, time);
     return time;
   }
