@@ -52,6 +52,17 @@ export function migrate() {
   logger.debug('Executing schema.sql (simplified migrate)...');
   db.exec(sql);
   logger.debug('Schema executed. Seeding param targets...');
+  // Post-schema composite indexes (added after initial deployment for query optimization)
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_health_data_user_type_ts ON health_data(user_id, type, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_activities_user_ts ON activities(user_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_messages_sender_profile_time ON messages(sender_id, profile_id, created_at);
+    `);
+    logger.debug('Additional composite indexes ensured');
+  } catch (e) {
+    logger.warn('Failed creating composite indexes (non-fatal)', { error: String(e) });
+  }
   seedGlobalParamTargets();
 }
 

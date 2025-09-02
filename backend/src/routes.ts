@@ -391,42 +391,36 @@ router.post('/api/medications', (req: Request, res: Response) => {
     const userId = req.user?.id;
     const { profileId, name, notes, medicationUrl } = req.body;
     if (!userId || !profileId || !name) return res.status(400).json({ error: 'profileId and name required' });
-    // Ensure normalized schema columns exist (notes, medication_url, created_at, updated_at); add & backfill if needed
+    // Ensure normalized schema columns exist (executed once then cached)
     try {
-      const cols = db.prepare('PRAGMA table_info(medications)').all() as any[];
-      const colNames = new Set(cols.map(c => c.name as string));
-      const desired: Record<string,string> = {
-        notes: 'TEXT',
-        medication_url: 'TEXT',
-        created_at: 'INTEGER',
-        updated_at: 'INTEGER',
-      };
-      const missing = Object.keys(desired).filter(c => !colNames.has(c));
-      if (missing.length > 0) {
-        logger.warn('Medications table missing columns; applying in-place migration', { missing });
-        const tx = db.transaction(() => {
-          for (const m of missing) {
-            const type = desired[m];
-            try {
-              db.prepare(`ALTER TABLE medications ADD COLUMN ${m} ${type}`).run();
-            } catch (e) {
-              logger.error('Failed to add medications column', { column: m, error: e });
+      const globalAny: any = globalThis as any;
+      if (!globalAny.__medicationsSchemaChecked) {
+        const cols = db.prepare('PRAGMA table_info(medications)').all() as any[];
+        const colNames = new Set(cols.map(c => c.name as string));
+        const desired: Record<string,string> = {
+          notes: 'TEXT',
+          medication_url: 'TEXT',
+          created_at: 'INTEGER',
+          updated_at: 'INTEGER',
+        };
+        const missing = Object.keys(desired).filter(c => !colNames.has(c));
+        if (missing.length > 0) {
+          logger.warn('Medications table missing columns; applying in-place migration', { missing });
+          const tx = db.transaction(() => {
+            for (const m of missing) {
+              const type = desired[m];
+              try { db.prepare(`ALTER TABLE medications ADD COLUMN ${m} ${type}`).run(); }
+              catch (e) { logger.error('Failed to add medications column', { column: m, error: e }); }
             }
-          }
-          // Backfill timestamps only
-          const now = Date.now();
-            if (missing.includes('created_at')) {
-              db.prepare('UPDATE medications SET created_at = ? WHERE created_at IS NULL').run(now);
-            }
-            if (missing.includes('updated_at')) {
-              db.prepare('UPDATE medications SET updated_at = ? WHERE updated_at IS NULL').run(now);
-            }
-        });
-        tx();
+            const now = Date.now();
+            if (missing.includes('created_at')) { db.prepare('UPDATE medications SET created_at = ? WHERE created_at IS NULL').run(now); }
+            if (missing.includes('updated_at')) { db.prepare('UPDATE medications SET updated_at = ? WHERE updated_at IS NULL').run(now); }
+          });
+          tx();
+        }
+        globalAny.__medicationsSchemaChecked = true;
       }
-    } catch (e) {
-      logger.error('Medication schema self-check failed (non-fatal)', { error: e });
-    }
+    } catch (e) { logger.error('Medication schema self-check failed (non-fatal)', { error: e }); }
     const id = randomUUID();
     const now = Date.now();
     db.prepare(`INSERT INTO medications (id,user_id,profile_id,name,notes,medication_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`)
@@ -800,25 +794,43 @@ function cosine(a: Map<string, number>, b: Map<string, number>): number {
 }
 
 function matchParamTargets(message: string, limit = 5) {
-  const stmt = db.prepare('SELECT param_code, target_min, target_max, preferred_unit, description, notes, organ_system FROM param_targets');
-  const rows = (stmt.all() as unknown) as ParamTargetRow[];
-  if (!Array.isArray(rows)) {
-    return [];
+  // Build or reuse cached vectors for param_targets to avoid O(N) tokenization every request
+  const globalAny: any = globalThis as any;
+  if (!globalAny.__paramTargetVecCache) {
+    const stmt = db.prepare('SELECT param_code, target_min, target_max, preferred_unit, description, notes, organ_system FROM param_targets');
+    const rows = (stmt.all() as unknown) as ParamTargetRow[];
+    const cache: any[] = [];
+    for (const r of rows) {
+      const text = [r.param_code, r.description, r.notes, r.organ_system].filter(Boolean).join(' ');
+      cache.push({ row: r, vec: buildVector(tokenize(text)) });
+    }
+    globalAny.__paramTargetVecCache = { ts: Date.now(), items: cache, count: cache.length };
+  } else if (Date.now() - globalAny.__paramTargetVecCache.ts > 5 * 60 * 1000) { // Refresh every 5 minutes
+    try {
+      const stmt = db.prepare('SELECT param_code, target_min, target_max, preferred_unit, description, notes, organ_system FROM param_targets');
+      const rows = (stmt.all() as unknown) as ParamTargetRow[];
+      const cache: any[] = [];
+      for (const r of rows) {
+        const text = [r.param_code, r.description, r.notes, r.organ_system].filter(Boolean).join(' ');
+        cache.push({ row: r, vec: buildVector(tokenize(text)) });
+      }
+      globalAny.__paramTargetVecCache = { ts: Date.now(), items: cache, count: cache.length };
+    } catch {}
   }
+  const cacheItems = globalAny.__paramTargetVecCache.items as { row: ParamTargetRow; vec: Map<string, number>; }[];
   const msgVec = buildVector(tokenize(message));
-  const scored = rows.map(r => {
-    const text = [r.param_code, r.description, r.notes, r.organ_system].filter(Boolean).join(' ');
-    const vec = buildVector(tokenize(text));
-    return { row: r, score: cosine(msgVec, vec) };
-  }).filter(s => s.score > 0).sort((a,b)=> b.score - a.score).slice(0, limit);
+  const scored = cacheItems.map(ci => ({ row: ci.row, score: cosine(msgVec, ci.vec) }))
+    .filter(s => s.score > 0)
+    .sort((a,b)=> b.score - a.score)
+    .slice(0, limit);
   return scored.map(s => ({
-    param_code: s.row.param_code,
-    score: Number(s.score.toFixed(4)),
-    target_min: s.row.target_min,
-    target_max: s.row.target_max,
-    preferred_unit: s.row.preferred_unit,
-    description: s.row.description,
-  }));
+      param_code: s.row.param_code,
+      score: Number(s.score.toFixed(4)),
+      target_min: s.row.target_min,
+      target_max: s.row.target_max,
+      preferred_unit: s.row.preferred_unit,
+      description: s.row.description,
+    }));
 }
 
 // Utility
@@ -1921,8 +1933,9 @@ router.get('/api/reports/files/:filename', (req: Request, res: Response) => {
       return res.status(404).json({ error: 'File not found' });
     }
     
-    // Serve the file
-    res.sendFile(filePath);
+  // Serve the file with caching headers (immutable upload)
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable'); // 7 days
+  res.sendFile(filePath);
   } catch (error) {
     logger.error('File serve error', { error });
     res.status(500).json({ error: 'Failed to serve file' });
@@ -2028,26 +2041,18 @@ router.post('/api/param-targets/match', (req: Request, res: Response) => {
 
 router.get('/api/messages', (req: Request, res: Response) => {
   const userId = req.user?.id;
-  if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   const profileIdFilter = req.query.profile_id;
-  const limit = Math.min(Number(req.query.limit || 50), 500);
-  
-  let query = 'SELECT * FROM messages WHERE sender_id = ?';
+  const limit = Math.min(Number(req.query.limit || 50), 200);
+  const before = req.query.before ? Number(req.query.before) : undefined; // cursor (created_at)
+  let query = 'SELECT id, profile_id, sender_id, role, content, created_at, processed, stored_record_id FROM messages WHERE sender_id = ?';
   const params: any[] = [userId];
-  
-  if (profileIdFilter) {
-    query += ' AND profile_id = ?';
-    params.push(profileIdFilter);
-  }
-  
-  query += ' ORDER BY created_at DESC LIMIT ?';
-  params.push(limit);
-  
-  const rows = db.prepare(query).all(...params);
-  res.json({ items: rows });
+  if (profileIdFilter) { query += ' AND profile_id = ?'; params.push(profileIdFilter); }
+  if (before) { query += ' AND created_at < ?'; params.push(before); }
+  query += ' ORDER BY created_at DESC LIMIT ?'; params.push(limit);
+  const rows = db.prepare(query).all(...params) as any[];
+  const nextCursor = rows.length === limit ? rows[rows.length - 1].created_at : null;
+  res.json({ items: rows, paging: { limit, nextCursor } });
 });
 
 // Reprocess failed messages

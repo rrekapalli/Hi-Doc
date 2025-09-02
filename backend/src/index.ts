@@ -3,10 +3,11 @@ import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import express, { Request, Response } from 'express';
+import compression from 'compression';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
 import router from './routes.js';
-import { migrate } from './db.js';
+import { migrate, db } from './db.js';
 import { logger } from './logger.js';
 import { randomUUID } from 'crypto';
 
@@ -20,6 +21,10 @@ logger.info('Starting Hi-Doc backend service');
 const app = express();
 // Disable ETag to avoid 304 confusing the client on dynamic JSON lists
 app.set('etag', false);
+// Trust proxy for correct client IP if behind reverse proxy
+app.set('trust proxy', 1);
+// Enable gzip/deflate compression for payloads >1kb
+app.use(compression({ threshold: 1024 }));
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
@@ -29,6 +34,11 @@ import profilesRouter from './routes/profiles.js';
 
 logger.info('Logger initialized', { level: logger.level });
 migrate();
+// Apply runtime PRAGMAs (safe performance tweaks)
+try {
+  db.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA temp_store = MEMORY; PRAGMA mmap_size = 268435456;`);
+  logger.info('SQLite performance PRAGMAs applied');
+} catch (e) { logger.warn('Failed applying PRAGMAs', { error: String(e) }); }
 logger.info('Database migrated');
 
 // Request logging middleware (adds reqId for correlation)
@@ -48,6 +58,26 @@ app.use((req, res, next) => {
 });
 
 app.get('/healthz', (_req: Request, res: Response) => res.json({ ok: true }));
+
+// Simple in-memory metrics (reset on restart)
+const metrics: Record<string, { count: number; totalMs: number; }> = {};
+
+// Metrics & timing middleware (after request logging for efficiency)
+app.use((req, res, next) => {
+  const startHr = process.hrtime.bigint();
+  res.on('finish', () => {
+    const durMs = Number(process.hrtime.bigint() - startHr) / 1_000_000;
+    const key = `${req.method} ${(req.path || '').split('/:')[0]}`;
+    const m = metrics[key] || (metrics[key] = { count: 0, totalMs: 0 });
+    m.count++; m.totalMs += durMs;
+  });
+  next();
+});
+
+app.get('/metrics', (_req, res) => {
+  const snapshot = Object.entries(metrics).map(([k,v]) => ({ route: k, count: v.count, avgMs: +(v.totalMs / v.count).toFixed(2) }));
+  res.json({ snapshot, now: Date.now() });
+});
 
 // Add middleware and routes
 app.use(authMiddleware);

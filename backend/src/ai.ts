@@ -318,7 +318,7 @@ function extractFirstJsonBlock(text: string): any {
   return JSON.parse(slice);
 }
 
-import { ChatGptService } from './chatgpt.js';
+import { ChatGptService } from './chatgpt.js'; // explicit .js retained for ESM build
 
 // Initialize ChatGPT service
 const chatGptService = new ChatGptService();
@@ -350,7 +350,21 @@ export async function interpretMessage(message: string): Promise<AiInterpretatio
     // If it's data entry, route to appropriate prompt
     if (classification.route_to) {
       if (VERBOSE) logger.debug('Classifier routing to specialized prompt', { route: classification.route_to });
-      const promptContent = readFileSync(join(process.cwd(), 'assets', 'prompts', classification.route_to), 'utf-8');
+      // Use cached prompt if available
+      let promptContent: string;
+      try {
+        const p = classification.route_to;
+        // Basic in-process cache leveraging initializePrompts loaded set
+        const cacheMap: any = (globalThis as any).__extraPromptCache || ((globalThis as any).__extraPromptCache = new Map());
+        if (cacheMap.has(p)) promptContent = cacheMap.get(p);
+        else {
+          promptContent = readFileSync(join(process.cwd(), 'assets', 'prompts', p), 'utf-8');
+          cacheMap.set(p, promptContent);
+        }
+      } catch (e) {
+        logger.warn('Falling back to health data entry prompt for missing cached route prompt', { route: classification.route_to });
+        promptContent = getHealthDataEntryPrompt();
+      }
       const dataEntryResponse = await chatGptService.chat([
         { role: 'system', content: promptContent },
         { role: 'user', content: classification.original_message }

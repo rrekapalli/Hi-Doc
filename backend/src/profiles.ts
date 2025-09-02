@@ -1,4 +1,4 @@
-import { db, transaction } from './db';
+import { db, transaction } from './db.js';
 
 // Profile related types (renamed from Conversation)
 export interface Profile {
