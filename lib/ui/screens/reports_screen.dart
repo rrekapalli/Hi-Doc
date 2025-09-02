@@ -44,7 +44,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final reportsProvider = context.read<ReportsProvider>();
     
     // Using prototype user ID for development
-    const userId = 'prototype-user-12345';
+  const userId = 'prototype-user';
     await reportsProvider.loadReports(userId);
     _isLoading = false;
   }
@@ -312,7 +312,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final reportsProvider = context.read<ReportsProvider>();
       
       // Upload file directly to backend instead of saving locally
-      const userId = 'prototype-user-12345';
+  const userId = 'prototype-user';
       final report = await reportsProvider.addReportByUpload(
         file: file,
         userId: userId,
@@ -344,7 +344,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final reportsProvider = context.read<ReportsProvider>();
       
       // Upload file bytes directly to backend instead of storing locally
-      const userId = 'prototype-user-12345';
+  const userId = 'prototype-user';
       final report = await reportsProvider.addReportByUploadBytes(
         bytes: bytes,
         fileName: fileName,

@@ -9,7 +9,11 @@ export const db = new Database(DB_FILE);
 
 export function migrate() {
   if (!fs.existsSync(SCHEMA_PATH)) throw new Error(`Schema file not found at ${SCHEMA_PATH}`);
-  const sql = fs.readFileSync(SCHEMA_PATH, 'utf-8');
+  let sql = fs.readFileSync(SCHEMA_PATH, 'utf-8');
+  // IMPORTANT: Keep legacy prototype-user-12345 in raw schema to satisfy existing FK seeds.
+  // Runtime middleware will migrate data to canonical 'prototype-user' after startup.
+  // If someone edited schema to use 'prototype-user', map it back here to avoid FK failures during exec.
+  sql = sql.replace(/prototype-user(?!-12345)/g, 'prototype-user-12345');
   db.exec('PRAGMA foreign_keys = ON;');
   // Legacy cleanup: aggressively drop any legacy tables referencing conversations/conversation_id
   try {

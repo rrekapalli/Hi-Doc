@@ -77,28 +77,58 @@ interface DbMessage {
 const router = Router();
 
 // Prototype mode: Skip authentication and use a hardcoded user ID
+let prototypeUserMigrationDone = false;
 router.use((req: Request, res: Response, next: NextFunction) => {
-  // Use a fixed prototype user ID and ensure it exists
-  const prototypeUserId = 'prototype-user-12345';
+  // Canonical prototype user ID (aligned with Flutter client)
+  const canonicalUserId = 'prototype-user';
+  const legacyUserId = 'prototype-user-12345';
   const defaultEmail = 'prototype@example.com';
-  
-  // Check if user exists, create if not
-  let user = db.prepare('SELECT * FROM users WHERE id = ?').get(prototypeUserId);
-  if (!user) {
-    logger.debug('Creating prototype user in middleware', { userId: prototypeUserId, email: defaultEmail });
-    try {
-      db.prepare('INSERT OR IGNORE INTO users (id, name, email, photo_url) VALUES (?, ?, ?, ?)').run(prototypeUserId, 'Prototype User', defaultEmail, null);
-      user = db.prepare('SELECT * FROM users WHERE id = ?').get(prototypeUserId);
-      logger.debug('Prototype user created in middleware', { user });
-    } catch (e) {
-      logger.error('Failed to create prototype user in middleware', { error: e });
+
+  try {
+    // Ensure canonical user exists
+    let user = db.prepare('SELECT * FROM users WHERE id = ?').get(canonicalUserId);
+    if (!user) {
+      db.prepare('INSERT OR IGNORE INTO users (id, name, email, photo_url) VALUES (?,?,?,?)')
+        .run(canonicalUserId, 'Prototype User', defaultEmail, null);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(canonicalUserId);
+      logger.debug('Canonical prototype user ensured', { user });
     }
+
+    // One-time migration from legacy user id
+    if (!prototypeUserMigrationDone) {
+      const legacyExists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(legacyUserId);
+      if (legacyExists) {
+        logger.info('Running prototype user ID migration from legacy to canonical');
+        const tx = db.transaction(() => {
+          // Insert canonical user if not present (already ensured above)
+          // Update referencing tables first by inserting canonical user (done) then updating foreign keys
+          const tablesWithUserId = [
+            'medications','messages','reports','health_data','reminders','activities','profile_members'
+          ];
+            for (const t of tablesWithUserId) {
+              try {
+                db.prepare(`UPDATE ${t} SET user_id = ? WHERE user_id = ?`).run(canonicalUserId, legacyUserId);
+              } catch (e) {
+                logger.warn('Migration: failed updating table', { table: t, error: e });
+              }
+            }
+          // sender_id also references user (messages)
+          try { db.prepare('UPDATE messages SET sender_id = ? WHERE sender_id = ?').run(canonicalUserId, legacyUserId); } catch {}
+          // Finally remove legacy user row (only if no refs remain)
+          try { db.prepare('DELETE FROM users WHERE id = ?').run(legacyUserId); } catch {}
+        });
+        tx();
+        logger.info('Prototype user ID migration complete');
+      }
+      prototypeUserMigrationDone = true;
+    }
+
+    // Attach user to request
+    (req as any).userId = canonicalUserId;
+    (req as any).user = { id: canonicalUserId, name: 'Prototype User', email: defaultEmail };
+  } catch (e) {
+    logger.error('Error in prototype user middleware', { error: e });
   }
-  
-  // Set both userId and user.id to support both patterns
-  (req as any).userId = prototypeUserId;
-  (req as any).user = { id: prototypeUserId, name: 'Prototype User', email: defaultEmail };
-  logger.debug('Using hardcoded prototype user', { userId: prototypeUserId, path: req.path });
   next();
 });
 
@@ -324,6 +354,278 @@ router.get('/api/users/search', async (req: Request, res: Response) => {
   }
 });
 
+// -------------------------------
+// Medications & Schedules API
+// -------------------------------
+
+// List medications for a profile
+router.get('/api/medications', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const profileId = (req.query.profile_id as string) || (req.query.profileId as string);
+    if (!userId || !profileId) return res.status(400).json({ error: 'profile_id required' });
+    const rows = db.prepare(`SELECT * FROM medications WHERE user_id = ? AND profile_id = ? ORDER BY name ASC`).all(userId, profileId);
+    res.json(rows);
+  } catch (e) {
+    logger.error('Error listing medications', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create medication
+router.post('/api/medications', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { profileId, name, notes, medicationUrl } = req.body;
+    if (!userId || !profileId || !name) return res.status(400).json({ error: 'profileId and name required' });
+    // Ensure normalized schema columns exist (created_at, updated_at); migrate legacy table if needed
+    try {
+      const cols = db.prepare("PRAGMA table_info(medications)").all() as any[];
+      const colNames = cols.map(c => c.name);
+      const missing: string[] = [];
+      if (!colNames.includes('created_at')) missing.push('created_at');
+      if (!colNames.includes('updated_at')) missing.push('updated_at');
+      if (missing.length > 0) {
+        logger.warn('Migrating legacy medications table to add missing columns', { missing });
+        const tx = db.transaction(() => {
+          for (const m of missing) {
+            try { db.prepare(`ALTER TABLE medications ADD COLUMN ${m} INTEGER`).run(); } catch (e) { logger.error('Add column failed', { column: m, error: e }); }
+          }
+          // Backfill values
+          const now = Date.now();
+          if (missing.includes('created_at')) { db.prepare('UPDATE medications SET created_at = ? WHERE created_at IS NULL').run(now); }
+          if (missing.includes('updated_at')) { db.prepare('UPDATE medications SET updated_at = ? WHERE updated_at IS NULL').run(now); }
+        });
+        tx();
+      }
+    } catch (e) {
+      logger.error('Medication schema self-check failed (non-fatal)', { error: e });
+    }
+    const id = randomUUID();
+    const now = Date.now();
+    db.prepare(`INSERT INTO medications (id,user_id,profile_id,name,notes,medication_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`)
+      .run(id, userId, profileId, name, notes || null, medicationUrl || null, now, now);
+    res.json({ id });
+  } catch (e) {
+    const err: any = e;
+    logger.error('Error creating medication', { message: err?.message, error: err, stack: err?.stack });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get medication detail with schedules + times
+router.get('/api/medications/:id', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const med = db.prepare('SELECT * FROM medications WHERE id = ? AND user_id = ?').get(id, userId);
+    if (!med) return res.status(404).json({ error: 'Not found' });
+    const schedules = db.prepare('SELECT * FROM medication_schedules WHERE medication_id = ? ORDER BY start_date ASC').all(id);
+    const schedulesWithTimes = schedules.map((s: any) => {
+      const times = db.prepare('SELECT * FROM medication_schedule_times WHERE schedule_id = ? ORDER BY sort_order ASC, time_local ASC').all(s.id);
+      return { ...s, times };
+    });
+    res.json({ ...med, schedules: schedulesWithTimes });
+  } catch (e) {
+    logger.error('Error getting medication detail', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update medication
+router.put('/api/medications/:id', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+    const { name, notes, medicationUrl } = req.body;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const now = Date.now();
+    const stmt = db.prepare('UPDATE medications SET name = COALESCE(?, name), notes = COALESCE(?, notes), medication_url = COALESCE(?, medication_url), updated_at = ? WHERE id = ? AND user_id = ?');
+    const info = stmt.run(name || null, notes || null, medicationUrl || null, now, id, userId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error updating medication', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete medication (cascade removes schedules/times via FK)
+router.delete('/api/medications/:id', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const info = db.prepare('DELETE FROM medications WHERE id = ? AND user_id = ?').run(id, userId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error deleting medication', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create schedule for medication
+router.post('/api/medications/:id/schedules', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id; const { id } = req.params;
+    const med = db.prepare('SELECT id FROM medications WHERE id = ? AND user_id = ?').get(id, userId);
+    if (!med) return res.status(404).json({ error: 'Medication not found' });
+    const { schedule, frequencyPerDay, isForever, startDate, endDate, daysOfWeek, timezone, reminderEnabled = true } = req.body;
+    if (!schedule) return res.status(400).json({ error: 'schedule required' });
+    const schedId = randomUUID();
+    db.prepare(`INSERT INTO medication_schedules (id, medication_id, schedule, frequency_per_day, is_forever, start_date, end_date, days_of_week, timezone, reminder_enabled)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run(schedId, id, schedule, frequencyPerDay ?? null, isForever ? 1 : 0, startDate ?? null, endDate ?? null, daysOfWeek ?? null, timezone ?? null, reminderEnabled ? 1 : 0);
+    res.json({ id: schedId });
+  } catch (e) {
+    logger.error('Error creating schedule', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update schedule
+router.put('/api/schedules/:scheduleId', (req: Request, res: Response) => {
+  try {
+    const { scheduleId } = req.params;
+    const { schedule, frequencyPerDay, isForever, startDate, endDate, daysOfWeek, timezone, reminderEnabled } = req.body;
+    const stmt = db.prepare(`UPDATE medication_schedules SET 
+      schedule = COALESCE(?, schedule),
+      frequency_per_day = COALESCE(?, frequency_per_day),
+      is_forever = COALESCE(?, is_forever),
+      start_date = COALESCE(?, start_date),
+      end_date = COALESCE(?, end_date),
+      days_of_week = COALESCE(?, days_of_week),
+      timezone = COALESCE(?, timezone),
+      reminder_enabled = COALESCE(?, reminder_enabled)
+      WHERE id = ?`);
+    const info = stmt.run(schedule ?? null, frequencyPerDay ?? null, typeof isForever === 'boolean' ? (isForever ? 1 : 0) : null, startDate ?? null, endDate ?? null, daysOfWeek ?? null, timezone ?? null, typeof reminderEnabled === 'boolean' ? (reminderEnabled ? 1 : 0) : null, scheduleId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error updating schedule', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete schedule (cascade times via FK)
+router.delete('/api/schedules/:scheduleId', (req: Request, res: Response) => {
+  try {
+    const { scheduleId } = req.params;
+    const info = db.prepare('DELETE FROM medication_schedules WHERE id = ?').run(scheduleId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error deleting schedule', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create schedule time
+router.post('/api/schedules/:scheduleId/times', (req: Request, res: Response) => {
+  try {
+    const { scheduleId } = req.params;
+    const sched = db.prepare('SELECT id FROM medication_schedules WHERE id = ?').get(scheduleId);
+    if (!sched) return res.status(404).json({ error: 'Schedule not found' });
+    const { timeLocal, dosage, doseAmount, doseUnit, instructions, prn = false, sortOrder } = req.body;
+    if (!timeLocal) return res.status(400).json({ error: 'timeLocal required' });
+    const id = randomUUID();
+    db.prepare(`INSERT INTO medication_schedule_times (id, schedule_id, time_local, dosage, dose_amount, dose_unit, instructions, prn, sort_order)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run(id, scheduleId, timeLocal, dosage ?? null, doseAmount ?? null, doseUnit ?? null, instructions ?? null, prn ? 1 : 0, sortOrder ?? null);
+    res.json({ id });
+  } catch (e) {
+    logger.error('Error creating schedule time', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update schedule time
+router.put('/api/schedule-times/:timeId', (req: Request, res: Response) => {
+  try {
+    const { timeId } = req.params;
+    const { timeLocal, dosage, doseAmount, doseUnit, instructions, prn, sortOrder, nextTriggerTs } = req.body;
+    const stmt = db.prepare(`UPDATE medication_schedule_times SET 
+      time_local = COALESCE(?, time_local),
+      dosage = COALESCE(?, dosage),
+      dose_amount = COALESCE(?, dose_amount),
+      dose_unit = COALESCE(?, dose_unit),
+      instructions = COALESCE(?, instructions),
+      prn = COALESCE(?, prn),
+      sort_order = COALESCE(?, sort_order),
+      next_trigger_ts = COALESCE(?, next_trigger_ts)
+      WHERE id = ?`);
+    const info = stmt.run(timeLocal ?? null, dosage ?? null, doseAmount ?? null, doseUnit ?? null, instructions ?? null, typeof prn === 'boolean' ? (prn ? 1 : 0) : null, sortOrder ?? null, nextTriggerTs ?? null, timeId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error updating schedule time', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete schedule time
+router.delete('/api/schedule-times/:timeId', (req: Request, res: Response) => {
+  try {
+    const { timeId } = req.params;
+    const info = db.prepare('DELETE FROM medication_schedule_times WHERE id = ?').run(timeId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error deleting schedule time', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// List schedule times for a schedule
+router.get('/api/schedules/:scheduleId/times', (req: Request, res: Response) => {
+  try {
+    const { scheduleId } = req.params;
+    const sched = db.prepare('SELECT id FROM medication_schedules WHERE id = ?').get(scheduleId);
+    if (!sched) return res.status(404).json({ error: 'Schedule not found' });
+    const rows = db.prepare('SELECT * FROM medication_schedule_times WHERE schedule_id = ? ORDER BY sort_order ASC, time_local ASC').all(scheduleId);
+    res.json(rows);
+  } catch (e) {
+    logger.error('Error listing schedule times', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create intake log
+router.post('/api/schedule-times/:timeId/intake-logs', (req: Request, res: Response) => {
+  try {
+    const { timeId } = req.params; const { status, actualDoseAmount, actualDoseUnit, notes } = req.body;
+    if (!status) return res.status(400).json({ error: 'status required' });
+    const exists = db.prepare('SELECT id FROM medication_schedule_times WHERE id = ?').get(timeId);
+    if (!exists) return res.status(404).json({ error: 'Schedule time not found' });
+    const id = randomUUID();
+    const takenTs = Date.now();
+    db.prepare(`INSERT INTO medication_intake_logs (id, schedule_time_id, taken_ts, status, actual_dose_amount, actual_dose_unit, notes)
+      VALUES (?,?,?,?,?,?,?)`).run(id, timeId, takenTs, status, actualDoseAmount ?? null, actualDoseUnit ?? null, notes ?? null);
+    res.json({ id, takenTs });
+  } catch (e) {
+    logger.error('Error creating intake log', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// List intake logs for medication
+router.get('/api/medications/:id/intake-logs', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params; const from = req.query.from ? parseInt(req.query.from as string) : undefined; const to = req.query.to ? parseInt(req.query.to as string) : undefined;
+    const where: string[] = ['ms.medication_id = ?']; const args:any[] = [id];
+    if (from) { where.push('mil.taken_ts >= ?'); args.push(from); }
+    if (to) { where.push('mil.taken_ts <= ?'); args.push(to); }
+    const rows = db.prepare(`SELECT mil.* FROM medication_intake_logs mil
+      JOIN medication_schedule_times mst ON mil.schedule_time_id = mst.id
+      JOIN medication_schedules ms ON mst.schedule_id = ms.id
+      WHERE ${where.join(' AND ')} ORDER BY mil.taken_ts DESC`).all(...args);
+    res.json(rows);
+  } catch (e) {
+    logger.error('Error listing intake logs', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Create external user endpoint for device contacts
 router.post('/api/users/external', async (req: Request, res: Response) => {
   try {
@@ -371,15 +673,15 @@ function insertMessageRecord({ id, profileId, userId, role, content, createdAt, 
   try {
     db.prepare('INSERT INTO messages (id, profile_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,?)')
       .run(id, profileId, userId, role, content, createdAt, processed);
-  } catch (e: any) {
-    if (/FOREIGN KEY constraint failed/i.test(String(e.message))) {
-      try {
-        const existingProfile = db.prepare('SELECT id FROM profiles WHERE id = ?').get(profileId);
-        const existingUser = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
-        logger.error('Foreign key failure inserting message', { profileId, userId, hasProfile: !!existingProfile, hasUser: !!existingUser });
-      } catch {}
-    }
-    throw e;
+  } catch (e) {
+    const err: any = e;
+    logger.error('Error inserting message', { message: err?.message, error: err, stack: err?.stack });
+    try {
+      const existingProfile = db.prepare('SELECT id FROM profiles WHERE id = ?').get(profileId);
+      const existingUser = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+      logger.error('Foreign key failure inserting message', { profileId, userId, hasProfile: !!existingProfile, hasUser: !!existingUser });
+    } catch {}
+    throw err;
   }
 }
 
@@ -1306,51 +1608,6 @@ router.delete('/api/activities/:id', (req: Request, res: Response) => {
   res.status(204).end();
 });
 
-// Medications CRUD
-const medicationSchema = z.object({
-  name: z.string(),
-  dosage: z.string().optional(),
-  schedule: z.string().optional(),
-  duration_days: z.number().int().optional(),
-  is_forever: z.boolean().optional(),
-  start_date: z.number().int().optional(),
-  profile_id: z.string().optional(),
-});
-
-router.post('/api/medications', (req: Request, res: Response) => {
-  const parsed = medicationSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const userId = (req as any).userId;
-  const id = randomUUID();
-  const { name, dosage, schedule, duration_days, is_forever, start_date, profile_id } = parsed.data;
-  const profId = profile_id || 'default-profile';
-  db.prepare('INSERT INTO medications (id, user_id, profile_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(id, userId, profId, name, dosage || null, schedule || null, duration_days ?? null, is_forever ? 1 : 0, start_date ?? null);
-  res.status(201).json({ id, ...parsed.data, profile_id: profId });
-});
-
-router.get('/api/medications', (req: Request, res: Response) => {
-  const userId = (req as any).userId;
-  const activeOnly = req.query.active === 'true';
-  const rows = db.prepare('SELECT * FROM medications WHERE user_id = ?').all(userId)
-    .filter((r: any) => !activeOnly || r.is_forever === 1 || (r.duration_days && r.start_date && (Date.now() - r.start_date) / 86400000 <= r.duration_days));
-  res.setHeader('Cache-Control', 'no-store');
-  res.json(rows);
-});
-
-router.delete('/api/medications/:id', (req: Request, res: Response) => {
-  const userId = (req as any).userId;
-  const id = req.params.id;
-  const existing = db.prepare('SELECT * FROM medications WHERE id = ? AND user_id = ?').get(id, userId);
-  if (!existing) {
-    logger.warn('Delete medication: not found', { id, userId });
-    return res.status(404).json({ error: 'not found' });
-  }
-  const info = db.prepare('DELETE FROM medications WHERE id = ? AND user_id = ?').run(id, userId);
-  logger.info('Delete medication attempt', { id, userId, changes: info.changes });
-  if (info.changes === 0) return res.status(404).json({ error: 'not found (race?)' });
-  res.status(204).end();
-});
 
 // Reports CRUD
 const reportSchema = z.object({

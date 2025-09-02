@@ -57,8 +57,12 @@ class Medication {
     name: row['name'] as String,
     notes: row['notes'] as String?,
     medicationUrl: row['medication_url'] as String?,
-    createdAt: row['created_at'] as int,
-    updatedAt: row['updated_at'] as int,
+  createdAt: (row['created_at'] as int?)
+    ?? (row['createdAt'] as int?)
+    ?? DateTime.now().millisecondsSinceEpoch,
+  updatedAt: (row['updated_at'] as int?)
+    ?? (row['updatedAt'] as int?)
+    ?? DateTime.now().millisecondsSinceEpoch,
   );
 
   static Medication create({required String userId, required String profileId, required String name, String? notes, String? url}) {

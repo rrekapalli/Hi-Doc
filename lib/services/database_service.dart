@@ -17,7 +17,7 @@ import 'notification_service.dart';
 /// Clean implementation (legacy in‑memory paths removed).
 class DatabaseService {
   static const _dbName = 'hi_doc.db';
-  static const _dbVersion = 9; // v9: rename legacy medications->medications_old, medications_v2->medications
+  static const _dbVersion = 10; // v9: rename tables; v10: unify prototype user ids
   final NotificationService _notificationService;
   final _backendBaseUrl = AppConfig.backendBaseUrl;
   Database? _db;
@@ -87,11 +87,21 @@ class DatabaseService {
       version: _dbVersion,
       onCreate: (db, v) async => _onCreate(db),
       onUpgrade: (db, o, n) async => _onUpgrade(db, o, n));
+        if (kDebugMode) {
+          debugPrint('[DB] Opened web IndexedDB database name=$_dbName origin=${Uri.base.origin} version=$_dbVersion');
+        }
       } else {
         final dir = await getApplicationDocumentsDirectory();
-        _db = await openDatabase(p.join(dir.path, _dbName), version: _dbVersion, onCreate: (db, v) async => _onCreate(db), onUpgrade: (db, o, n) async => _onUpgrade(db, o, n));
+        final fullPath = p.join(dir.path, _dbName);
+        _db = await openDatabase(fullPath, version: _dbVersion, onCreate: (db, v) async => _onCreate(db), onUpgrade: (db, o, n) async => _onUpgrade(db, o, n));
+        if (kDebugMode) {
+          debugPrint('[DB] Opened $_dbName at $fullPath (version=$_dbVersion)');
+        }
       }
       _initialized = true;
+      if (kDebugMode) {
+        try { await _debugDumpMedicationCounts(); } catch (e) { debugPrint('[DB] debug dump failed: $e'); }
+      }
     } catch (e, st) {
       debugPrint('DB init failed: $e\n$st');
       rethrow;
@@ -169,6 +179,7 @@ class DatabaseService {
     await _onCreate(db); // idempotent
     if (oldVersion < 8) await _migrateLegacy(db);
     if (oldVersion < 9) await _migrateRenameMedicationTables(db);
+  if (oldVersion < 10) await _migrateUnifyPrototypeUser(db);
   }
 
   Future<void> _migrateRenameMedicationTables(Database db) async {
@@ -221,6 +232,15 @@ class DatabaseService {
       }
     } catch (e) {
       debugPrint('Legacy migration warn: $e');
+    }
+  }
+
+  Future<void> _migrateUnifyPrototypeUser(Database db) async {
+    try {
+      final changed = await db.rawUpdate("UPDATE medications SET user_id = 'prototype-user' WHERE user_id IN ('prototype-user-12345','prototype-user-1234','prototype-user-123')");
+      if (kDebugMode) debugPrint('[DB] v10 migration unified user ids; rows updated: $changed');
+    } catch (e) {
+      debugPrint('Migration unify prototype user failed: $e');
     }
   }
 
@@ -283,35 +303,212 @@ class DatabaseService {
   }
 
   // ---- Medications (normalized) ----
-  Future<void> createMedication(Map<String, dynamic> data) async => _ensure().insert('medications', data, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<String> createMedication(Map<String, dynamic> data) async {
+    if (kIsWeb) {
+      // POST to backend (id created client-side so pass through)
+      final payload = {
+        'profileId': data['profile_id'],
+        'name': data['name'],
+        'notes': data['notes'],
+        'medicationUrl': data['medication_url'],
+      };
+      final r = await http.post(Uri.parse('$_backendBaseUrl/api/medications'), headers: await _getAuthHeaders(), body: jsonEncode(payload));
+  if (r.statusCode != 200 && r.statusCode != 201) { throw Exception('Create medication failed ${r.statusCode} ${r.body}'); }
+      // backend generates id; overwrite local id to keep provider consistent
+      final id = (jsonDecode(r.body) as Map)['id'];
+      data['id'] = id;
+      return id;
+    } else {
+      await _ensure().insert('medications', data, conflictAlgorithm: ConflictAlgorithm.replace);
+      return data['id'] as String;
+    }
+  }
 
-  Future<void> updateMedication(Map<String, dynamic> data) async => _ensure().update('medications', data, where: 'id = ?', whereArgs: [data['id']]);
+  Future<void> updateMedication(Map<String, dynamic> data) async {
+    if (kIsWeb) {
+      final id = data['id'];
+      final payload = {
+        'name': data['name'],
+        'notes': data['notes'],
+        'medicationUrl': data['medication_url'],
+      };
+      final r = await http.put(Uri.parse('$_backendBaseUrl/api/medications/$id'), headers: await _getAuthHeaders(), body: jsonEncode(payload));
+      if (r.statusCode != 200) throw Exception('Update medication failed ${r.statusCode}');
+    } else {
+      await _ensure().update('medications', data, where: 'id = ?', whereArgs: [data['id']]);
+    }
+  }
 
-  Future<List<Map<String, dynamic>>> listMedications({required String userId, required String profileId}) async => _ensure().query('medications', where: 'user_id = ? AND profile_id = ?', whereArgs: [userId, profileId], orderBy: 'name ASC');
+  Future<List<Map<String, dynamic>>> listMedications({required String userId, required String profileId}) async {
+    if (kIsWeb) {
+      final uri = Uri.parse('$_backendBaseUrl/api/medications').replace(queryParameters: { 'profile_id': profileId });
+      final r = await http.get(uri, headers: await _getAuthHeaders());
+      if (r.statusCode != 200) throw Exception('List medications failed');
+      return List<Map<String,dynamic>>.from(jsonDecode(r.body) as List);
+    }
+    return _ensure().query('medications', where: 'user_id = ? AND profile_id = ?', whereArgs: [userId, profileId], orderBy: 'name ASC');
+  }
 
-  Future<void> deleteMedication(String id) async => _ensure().delete('medications', where: 'id = ?', whereArgs: [id]);
+  Future<void> deleteMedication(String id) async {
+    if (kIsWeb) {
+      final r = await http.delete(Uri.parse('$_backendBaseUrl/api/medications/$id'), headers: await _getAuthHeaders());
+      if (r.statusCode != 200) throw Exception('Delete medication failed');
+    } else {
+      await _ensure().delete('medications', where: 'id = ?', whereArgs: [id]);
+    }
+  }
 
-  Future<void> createSchedule(Map<String, dynamic> data) async => _ensure().insert('medication_schedules', data, conflictAlgorithm: ConflictAlgorithm.replace);
+  // --- Schedules / Times / Intake Logs (web -> backend HTTP, native -> local SQLite) ---
+  Future<void> createSchedule(Map<String, dynamic> data) async {
+    if (kIsWeb) {
+      final medId = data['medication_id'];
+      final payload = {
+        'schedule': data['schedule'],
+        'frequencyPerDay': data['frequency_per_day'],
+        'isForever': (data['is_forever'] == 1),
+        'startDate': data['start_date'],
+        'endDate': data['end_date'],
+        'daysOfWeek': data['days_of_week'],
+        'timezone': data['timezone'],
+        'reminderEnabled': (data['reminder_enabled'] ?? 1) == 1,
+      };
+      final r = await http.post(Uri.parse('$_backendBaseUrl/api/medications/$medId/schedules'), headers: await _getAuthHeaders(), body: jsonEncode(payload));
+      if (r.statusCode != 200) throw Exception('Create schedule failed');
+      data['id'] = (jsonDecode(r.body) as Map)['id'];
+    } else {
+      await _ensure().insert('medication_schedules', data, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+  }
 
-  Future<void> updateSchedule(Map<String, dynamic> data) async => _ensure().update('medication_schedules', data, where: 'id = ?', whereArgs: [data['id']]);
+  Future<void> updateSchedule(Map<String, dynamic> data) async {
+    if (kIsWeb) {
+      final id = data['id'];
+      final payload = {
+        'schedule': data['schedule'],
+        'frequencyPerDay': data['frequency_per_day'],
+        'isForever': data['is_forever'] == 1,
+        'startDate': data['start_date'],
+        'endDate': data['end_date'],
+        'daysOfWeek': data['days_of_week'],
+        'timezone': data['timezone'],
+        'reminderEnabled': data['reminder_enabled'] == 1,
+      };
+      final r = await http.put(Uri.parse('$_backendBaseUrl/api/schedules/$id'), headers: await _getAuthHeaders(), body: jsonEncode(payload));
+      if (r.statusCode != 200) throw Exception('Update schedule failed');
+    } else {
+      await _ensure().update('medication_schedules', data, where: 'id = ?', whereArgs: [data['id']]);
+    }
+  }
 
-  Future<void> deleteSchedule(String id) async => _ensure().delete('medication_schedules', where: 'id = ?', whereArgs: [id]);
+  Future<void> deleteSchedule(String id) async {
+    if (kIsWeb) {
+      final r = await http.delete(Uri.parse('$_backendBaseUrl/api/schedules/$id'), headers: await _getAuthHeaders());
+      if (r.statusCode != 200) throw Exception('Delete schedule failed');
+    } else {
+      await _ensure().delete('medication_schedules', where: 'id = ?', whereArgs: [id]);
+    }
+  }
 
-  Future<List<Map<String, dynamic>>> getSchedules(String medicationId) async => _ensure().query('medication_schedules', where: 'medication_id = ?', whereArgs: [medicationId], orderBy: 'start_date ASC');
+  Future<List<Map<String, dynamic>>> getSchedules(String medicationId) async {
+    if (kIsWeb) {
+      final r = await http.get(Uri.parse('$_backendBaseUrl/api/medications/$medicationId'), headers: await _getAuthHeaders());
+      if (r.statusCode != 200) return [];
+      final body = jsonDecode(r.body) as Map<String,dynamic>;
+      return List<Map<String,dynamic>>.from(body['schedules'] as List? ?? []);
+    }
+    return _ensure().query('medication_schedules', where: 'medication_id = ?', whereArgs: [medicationId], orderBy: 'start_date ASC');
+  }
 
-  Future<Map<String, dynamic>?> getScheduleById(String scheduleId) async { final rows = await _ensure().query('medication_schedules', where: 'id = ?', whereArgs: [scheduleId], limit: 1); return rows.isEmpty ? null : rows.first; }
+  Future<Map<String, dynamic>?> getScheduleById(String scheduleId) async {
+    if (kIsWeb) return null; // not used on web yet
+    final rows = await _ensure().query('medication_schedules', where: 'id = ?', whereArgs: [scheduleId], limit: 1); return rows.isEmpty ? null : rows.first;
+  }
 
-  Future<void> createScheduleTime(Map<String, dynamic> data) async => _ensure().insert('medication_schedule_times', data, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> createScheduleTime(Map<String, dynamic> data) async {
+    if (kIsWeb) {
+      final scheduleId = data['schedule_id'];
+      final payload = {
+        'timeLocal': data['time_local'],
+        'dosage': data['dosage'],
+        'doseAmount': data['dose_amount'],
+        'doseUnit': data['dose_unit'],
+        'instructions': data['instructions'],
+        'prn': (data['prn'] ?? 0) == 1,
+        'sortOrder': data['sort_order'],
+      };
+      final r = await http.post(Uri.parse('$_backendBaseUrl/api/schedules/$scheduleId/times'), headers: await _getAuthHeaders(), body: jsonEncode(payload));
+      if (r.statusCode != 200) throw Exception('Create schedule time failed');
+      data['id'] = (jsonDecode(r.body) as Map)['id'];
+    } else {
+      await _ensure().insert('medication_schedule_times', data, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+  }
 
-  Future<void> updateScheduleTime(Map<String, dynamic> data) async => _ensure().update('medication_schedule_times', data, where: 'id = ?', whereArgs: [data['id']]);
+  Future<void> updateScheduleTime(Map<String, dynamic> data) async {
+    if (kIsWeb) {
+      final id = data['id'];
+      final payload = {
+        'timeLocal': data['time_local'],
+        'dosage': data['dosage'],
+        'doseAmount': data['dose_amount'],
+        'doseUnit': data['dose_unit'],
+        'instructions': data['instructions'],
+        'prn': (data['prn'] ?? 0) == 1,
+        'sortOrder': data['sort_order'],
+        'nextTriggerTs': data['next_trigger_ts'],
+      };
+      final r = await http.put(Uri.parse('$_backendBaseUrl/api/schedule-times/$id'), headers: await _getAuthHeaders(), body: jsonEncode(payload));
+      if (r.statusCode != 200) throw Exception('Update schedule time failed');
+    } else {
+      await _ensure().update('medication_schedule_times', data, where: 'id = ?', whereArgs: [data['id']]);
+    }
+  }
 
-  Future<void> deleteScheduleTime(String id) async => _ensure().delete('medication_schedule_times', where: 'id = ?', whereArgs: [id]);
+  Future<void> deleteScheduleTime(String id) async {
+    if (kIsWeb) {
+      final r = await http.delete(Uri.parse('$_backendBaseUrl/api/schedule-times/$id'), headers: await _getAuthHeaders());
+      if (r.statusCode != 200) throw Exception('Delete schedule time failed');
+    } else {
+      await _ensure().delete('medication_schedule_times', where: 'id = ?', whereArgs: [id]);
+    }
+  }
 
-  Future<List<Map<String, dynamic>>> getScheduleTimes(String scheduleId) async => _ensure().query('medication_schedule_times', where: 'schedule_id = ?', whereArgs: [scheduleId], orderBy: 'sort_order ASC, time_local ASC');
+  Future<List<Map<String, dynamic>>> getScheduleTimes(String scheduleId) async {
+    if (kIsWeb) {
+      final r = await http.get(Uri.parse('$_backendBaseUrl/api/schedules/$scheduleId/times'), headers: await _getAuthHeaders());
+      if (r.statusCode != 200) return [];
+      return List<Map<String,dynamic>>.from(jsonDecode(r.body) as List);
+    }
+    return _ensure().query('medication_schedule_times', where: 'schedule_id = ?', whereArgs: [scheduleId], orderBy: 'sort_order ASC, time_local ASC');
+  }
 
-  Future<void> insertIntakeLog(Map<String, dynamic> data) async => _ensure().insert('medication_intake_logs', data, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> insertIntakeLog(Map<String, dynamic> data) async {
+    if (kIsWeb) {
+      final r = await http.post(Uri.parse('$_backendBaseUrl/api/schedule-times/${data['schedule_time_id']}/intake-logs'), headers: await _getAuthHeaders(), body: jsonEncode({
+        'status': data['status'],
+        'actualDoseAmount': data['actual_dose_amount'],
+        'actualDoseUnit': data['actual_dose_unit'],
+        'notes': data['notes'],
+      }));
+      if (r.statusCode != 200) throw Exception('Create intake log failed');
+    } else {
+      await _ensure().insert('medication_intake_logs', data, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+  }
 
-  Future<List<Map<String, dynamic>>> listIntakeLogs(String medicationId, {int? fromTs, int? toTs}) async { final where = StringBuffer('ms.medication_id = ?'); final args = <Object?>[medicationId]; if (fromTs != null) { where.write(' AND mil.taken_ts >= ?'); args.add(fromTs); } if (toTs != null) { where.write(' AND mil.taken_ts <= ?'); args.add(toTs); } return _ensure().rawQuery('''SELECT mil.* FROM medication_intake_logs mil\n      JOIN medication_schedule_times mst ON mil.schedule_time_id = mst.id\n      JOIN medication_schedules ms ON mst.schedule_id = ms.id\n      WHERE ${where.toString()} ORDER BY mil.taken_ts DESC''', args); }
+  Future<List<Map<String, dynamic>>> listIntakeLogs(String medicationId, {int? fromTs, int? toTs}) async {
+    if (kIsWeb) {
+      final params = <String,String>{}; if (fromTs != null) params['from'] = fromTs.toString(); if (toTs != null) params['to'] = toTs.toString();
+      final uri = Uri.parse('$_backendBaseUrl/api/medications/$medicationId/intake-logs').replace(queryParameters: params.isEmpty?null:params);
+      final r = await http.get(uri, headers: await _getAuthHeaders());
+      if (r.statusCode != 200) throw Exception('List intake logs failed');
+      return List<Map<String,dynamic>>.from(jsonDecode(r.body) as List);
+    }
+    final where = StringBuffer('ms.medication_id = ?'); final args = <Object?>[medicationId]; if (fromTs != null) { where.write(' AND mil.taken_ts >= ?'); args.add(fromTs); } if (toTs != null) { where.write(' AND mil.taken_ts <= ?'); args.add(toTs); } return _ensure().rawQuery('''SELECT mil.* FROM medication_intake_logs mil
+      JOIN medication_schedule_times mst ON mil.schedule_time_id = mst.id
+      JOIN medication_schedules ms ON mst.schedule_id = ms.id
+      WHERE ${where.toString()} ORDER BY mil.taken_ts DESC''', args);
+  }
 
   // Generic raw query helper
   Future<List<Map<String, dynamic>>> rawQuery(String sql, [List<Object?>? args]) async => _ensure().rawQuery(sql, args);
@@ -328,5 +525,24 @@ class DatabaseService {
   Future<void> deleteRemindersForMedication(String medicationId) async {
     final db = _ensure();
     await db.delete('reminders', where: 'medication_id = ?', whereArgs: [medicationId]);
+  }
+
+  // ---- Debug helpers ----
+  Future<void> _debugDumpMedicationCounts() async {
+    final db = _ensure();
+    Future<int> count(String table) async {
+      final rows = await db.rawQuery('SELECT COUNT(*) c FROM $table');
+      return (rows.first['c'] as int?) ?? 0;
+    }
+    final meds = await count('medications');
+    final sched = await count('medication_schedules');
+    final times = await count('medication_schedule_times');
+    final logs = await count('medication_intake_logs');
+    debugPrint('[DB] Medication tables after open: medications=$meds schedules=$sched times=$times intake_logs=$logs');
+    // Also log distinct user/profile ids present
+    try {
+      final groups = await db.rawQuery('SELECT user_id, profile_id, COUNT(*) c FROM medications GROUP BY user_id, profile_id');
+      debugPrint('[DB] Medication user/profile groups: $groups');
+    } catch (_) {}
   }
 }

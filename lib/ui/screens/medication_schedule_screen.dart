@@ -11,7 +11,7 @@ class MedicationScheduleScreen extends StatelessWidget {
     return MedicationWizardScreen(
       editMedication: Medication(
         id: medication['id'] as String,
-        userId: 'prototype-user-12345',
+  userId: 'prototype-user',
         profileId: 'default-profile',
         name: medication['name'] as String? ?? '',
         notes: medication['dosage'] as String?,

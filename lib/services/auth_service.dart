@@ -27,7 +27,7 @@ class AuthService {
   Future<String?> getIdToken() async {
     if (kDebugMode || kIsWeb) {
       // For dev and web, use a test token
-      return 'dev_test_token_prototype-user-12345';
+  return 'dev_test_token_prototype-user';
     } else {
       // For mobile prod, get the token from Firebase
       return await _auth?.currentUser?.getIdToken();

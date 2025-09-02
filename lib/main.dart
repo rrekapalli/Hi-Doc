@@ -67,14 +67,15 @@ class HiDocApp extends StatelessWidget {
         ChangeNotifierProxyProvider<SelectedProfileProvider, MedicationsProvider>(
           create: (context) => MedicationsProvider(
             db: db,
-            userId: 'prototype-user-12345',
+      // Standardized prototype user id (was prototype-user-12345 in some places causing mismatch)
+      userId: 'prototype-user',
             profileId: context.read<SelectedProfileProvider>().selectedProfileId,
           ),
           update: (context, profile, previous) {
             if (previous == null) {
               return MedicationsProvider(
                 db: db,
-                userId: 'prototype-user-12345',
+        userId: 'prototype-user',
                 profileId: profile.selectedProfileId,
               );
             }

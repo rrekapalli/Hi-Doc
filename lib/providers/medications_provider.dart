@@ -15,12 +15,32 @@ class MedicationsProvider extends ChangeNotifier {
     loading = true; notifyListeners();
   final rows = await db.listMedications(userId: userId, profileId: profileId);
   medications = rows.map((r) => Medication.fromDb(r)).toList();
+    if (kDebugMode) {
+      try {
+        final all = await db.rawQuery('SELECT user_id, profile_id, COUNT(*) c FROM medications GROUP BY user_id, profile_id');
+        debugPrint('[MedicationsProvider.load] requested userId=$userId profileId=$profileId -> ${medications.length} meds. All groups: $all');
+      } catch (_) {}
+    }
     loading = false; notifyListeners();
   }
 
   Future<Medication> create(String name, {String? notes}) async {
-    final med = Medication.create(userId: userId, profileId: profileId, name: name, notes: notes);
-  await db.createMedication(med.toDb());
+    var med = Medication.create(userId: userId, profileId: profileId, name: name, notes: notes);
+    final data = med.toDb();
+    final newId = await db.createMedication(data);
+    if (newId != med.id) {
+      // Rebuild with backend id
+      med = Medication(
+        id: newId,
+        userId: med.userId,
+        profileId: med.profileId,
+        name: med.name,
+        notes: med.notes,
+        medicationUrl: med.medicationUrl,
+        createdAt: med.createdAt,
+        updatedAt: med.updatedAt,
+      );
+    }
     medications.add(med); notifyListeners();
     return med;
   }

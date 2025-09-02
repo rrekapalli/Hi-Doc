@@ -360,7 +360,11 @@ class MedicationsV2ProviderScope extends StatelessWidget {
     return ProxyProvider<DatabaseService, MedicationsProvider>(
       update: (context, db, previous) {
         final profileId = context.read<SelectedProfileProvider>().selectedProfileId;
-        final userId = 'prototype-user-12345';
+  final userId = 'prototype-user';
+  // Updated standardized prototype user id
+  // (legacy rows may still exist with earlier id; migration handles normalization)
+  // Keeping variable for potential future real auth mapping.
+  // NOTE: variable currently unused but retained for clarity.
         return previous ?? MedicationsProvider(db: db, userId: userId, profileId: profileId);
       },
       child: child,
