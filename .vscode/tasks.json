@@ -34,13 +34,6 @@
       "isBackground": true,
       "problemMatcher": []
     },
-    {
-      "label": "backend tests",
-      "type": "shell",
-      "command": "npm",
-      "args": ["run", "test"],
-      "options": { "cwd": "${workspaceFolder}/backend" },
-      "problemMatcher": []
-    }
+    
   ]
 }

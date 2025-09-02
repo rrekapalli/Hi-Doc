@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import { logger } from './logger.js';
 
 const DB_FILE = process.env.DB_FILE || path.join(process.cwd(), '..', '.db', 'hi_doc.db');
 const SCHEMA_PATH = path.join(process.cwd(), 'src', 'schema.sql');
@@ -24,15 +25,15 @@ export function migrate() {
       const cols = db.prepare('PRAGMA table_info(messages)').all() as any[];
       const hasConversationIdCol = cols.some(c => c.name === 'conversation_id');
       if (hasConversationIdCol) {
-        console.warn('Dropping legacy messages table with conversation_id column');
+  logger.warn('Dropping legacy messages table with conversation_id column');
         db.prepare('DROP TABLE IF EXISTS messages').run();
       } else if (!cols.some(c => c.name === 'profile_id')) {
-        console.warn('Messages table missing expected profile_id column; dropping to recreate');
+  logger.warn('Messages table missing expected profile_id column; dropping to recreate');
         db.prepare('DROP TABLE IF EXISTS messages').run();
       }
     }
     if (hasConversations) {
-      console.warn('Dropping legacy conversations table');
+  logger.warn('Dropping legacy conversations table');
       db.prepare('DROP TABLE IF EXISTS conversations').run();
     }
     // Drop any other tables that still include conversation_id in their SQL definition
@@ -40,17 +41,17 @@ export function migrate() {
       if (!t.sql) continue;
       if (/conversation_id/.test(t.sql) || /conversations\b/.test(t.sql)) {
         if (!['messages','conversations'].includes(t.name)) {
-          console.warn(`Dropping legacy table ${t.name} referencing conversations`);
+          logger.warn(`Dropping legacy table ${t.name} referencing conversations`);
           db.prepare(`DROP TABLE IF EXISTS ${t.name}`).run();
         }
       }
     }
   } catch (e) {
-    console.warn('Legacy cleanup skipped', e);
+    logger.warn('Legacy cleanup skipped', { error: String(e) });
   }
-  console.log('Executing schema.sql (simplified migrate)...');
+  logger.debug('Executing schema.sql (simplified migrate)...');
   db.exec(sql);
-  console.log('Schema executed. Seeding param targets...');
+  logger.debug('Schema executed. Seeding param targets...');
   seedGlobalParamTargets();
 }
 
@@ -59,7 +60,7 @@ export function transaction<T>(fn: () => T): T { return db.transaction(fn)(); }
 function seedGlobalParamTargets(): void {
   try {
     if (process.env.FORCE_RESEED_PARAM_TARGETS === '1') {
-      try { db.prepare('DELETE FROM param_targets').run(); } catch (e) { console.warn('Param targets clear failed', e); }
+  try { db.prepare('DELETE FROM param_targets').run(); } catch (e) { logger.warn('Param targets clear failed', { error: String(e) }); }
     }
     const c = db.prepare('SELECT COUNT(*) as c FROM param_targets').get() as any;
     if (c && c.c > 0) return;
@@ -70,14 +71,14 @@ function seedGlobalParamTargets(): void {
       path.join(process.cwd(), '..', 'health_params.sql')
     ].filter(Boolean) as string[];
     const sqlPath = candidates.find(p => { try { return fs.existsSync(p) && fs.statSync(p).isFile() && fs.readFileSync(p,'utf-8').trim().length>0; } catch { return false; } });
-    if (!sqlPath) { console.warn('health_params.sql not found; skipping param_targets seed'); return; }
+  if (!sqlPath) { logger.warn('health_params.sql not found; skipping param_targets seed'); return; }
     let sql = fs.readFileSync(sqlPath,'utf-8');
     sql = sql.replace(/INSERT\s+INTO\s+param_targets/gi,'INSERT OR REPLACE INTO param_targets');
     db.exec(sql);
     const after = db.prepare('SELECT COUNT(*) as c FROM param_targets').get() as any;
-    console.log(`Seeded ${after.c} param_targets from ${path.relative(process.cwd(), sqlPath)}`);
+  logger.info(`Seeded ${after.c} param_targets from ${path.relative(process.cwd(), sqlPath)}`);
   } catch (e) {
-    console.warn('param_targets seed failed (non-fatal)', e);
+  logger.warn('param_targets seed failed (non-fatal)', { error: String(e) });
   }
 }
 
