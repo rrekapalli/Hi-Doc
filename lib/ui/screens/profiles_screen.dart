@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/chat_provider.dart';
-import './profile_detail_screen.dart';
+import './profile_conversations_screen.dart';
 import '../common/hi_doc_app_bar.dart';
 
 class ProfilesScreen extends StatefulWidget {
@@ -31,7 +31,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: const HiDocAppBar(pageTitle: 'Messages'),
-      body: ProfileDetailScreen(
+  body: ProfileConversationsScreen(
         profileId: _activeProfileId,
         title: 'Me',
         profileType: 'direct',
