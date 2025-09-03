@@ -14,6 +14,10 @@ class TrendsProvider with ChangeNotifier {
   static const _prefKeyLastType = 'trends.lastType';
 
   List<String> _types = [];
+  final Map<String,String> _descToCode = {}; // description -> code
+  List<String> _descriptions = [];
+  String _typesSearchQuery = '';
+  Timer? _typesSearchDebounce;
   bool _loadingTypes = false;
   bool _loadingSeries = false;
   String? _typesError;
@@ -38,7 +42,8 @@ class TrendsProvider with ChangeNotifier {
   bool _mixedUnits = false;
   String? _dominantUnit;
 
-  List<String> get types => _types;
+  List<String> get types => _types; // codes (legacy)
+  List<String> get descriptions => _descriptions; // for UI display
   bool get isLoadingTypes => _loadingTypes;
   bool get isLoadingSeries => _loadingSeries;
   String? get typesError => _typesError;
@@ -80,10 +85,12 @@ class TrendsProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void setSelectedType(String? t) {
-    if (t == _selectedType) return;
-    _selectedType = t;
-    SharedPreferences.getInstance().then((p) { if (t != null) p.setString(_prefKeyLastType, t); });
+  void setSelectedType(String? valueOrDesc) {
+    if (valueOrDesc == null) return;
+    final code = _descToCode[valueOrDesc] ?? valueOrDesc; // accept description or code
+    if (code == _selectedType) return;
+    _selectedType = code;
+    SharedPreferences.getInstance().then((p) { p.setString(_prefKeyLastType, code); });
     _scheduleReload();
     notifyListeners();
   }
@@ -97,7 +104,14 @@ class TrendsProvider with ChangeNotifier {
     if (_loadingTypes) return;
     _loadingTypes = true; _typesError = null; notifyListeners();
     try {
-      _types = await service.fetchIndicatorTypes();
+      final meta = await service.fetchIndicatorMeta(query: _typesSearchQuery.isEmpty ? null : _typesSearchQuery);
+      _descToCode.clear();
+      for (final m in meta) { _descToCode[m['description']!] = m['code']!; }
+      _descriptions = _descToCode.keys.toList();
+      _types = _descToCode.values.toSet().toList();
+      if (_selectedType != null && !_types.contains(_selectedType)) {
+        _selectedType = _types.isNotEmpty ? _types.first : null;
+      }
     } catch (e) {
       _typesError = e.toString();
     } finally {
@@ -105,8 +119,31 @@ class TrendsProvider with ChangeNotifier {
     }
   }
 
+  String? codeForDescription(String desc) => _descToCode[desc];
+  String? descriptionForCode(String code) {
+    for (final entry in _descToCode.entries) { if (entry.value == code) return entry.key; }
+    return null;
+  }
+
+  void searchTypes(String query) {
+    _typesSearchQuery = query.trim();
+    _typesSearchDebounce?.cancel();
+    _typesSearchDebounce = Timer(const Duration(milliseconds: 250), () {
+      _loadTypes();
+    });
+  }
+
   Future<void> _loadSeries() async {
-    final type = _selectedType; if (type == null) { _series = []; _target = null; return; }
+    String? type = _selectedType;
+    if (type == null) { _series = []; _target = null; return; }
+    // Defensive: if somehow a description (with space / lowercase) got stored, map it to code.
+    if (type.contains(' ') || !_types.contains(type)) {
+      final mapped = codeForDescription(type);
+      if (mapped != null) {
+        type = mapped;
+        _selectedType = type; // normalize
+      }
+    }
     if (_loadingSeries) return;
     _loadingSeries = true; _seriesError = null; notifyListeners();
     try {
@@ -118,7 +155,7 @@ class TrendsProvider with ChangeNotifier {
         from = DateTime.fromMillisecondsSinceEpoch(0);
       }
       _from = from; _to = now;
-      final cacheKey = '$type|${_range.name}';
+  final cacheKey = '$type|${_range.name}';
       List<TrendPoint> data;
       if (_seriesCache.containsKey(cacheKey)) {
         data = _seriesCache[cacheKey]!;

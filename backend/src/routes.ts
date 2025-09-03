@@ -1398,10 +1398,19 @@ router.get('/api/health-data/types', (req: Request, res: Response) => {
     const userId = (req as any).user?.id || (req as any).userId;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const category = (req.query.category as string) || 'HEALTH_PARAMS';
-    const rows = db.prepare('SELECT DISTINCT type FROM health_data WHERE user_id = ? AND (? IS NULL OR category = ?) ORDER BY type ASC')
-      .all(userId, category, category) as any[];
+    const qRaw = (req.query.q as string) || '';
+    const limit = Math.min(parseInt((req.query.limit as string) || '50') || 50, 200);
+    let rows: any[];
+    if (qRaw) {
+      const q = `%${qRaw.toLowerCase()}%`;
+      rows = db.prepare(`SELECT DISTINCT type FROM health_data WHERE user_id = ? AND (? IS NULL OR category = ?) AND LOWER(type) LIKE ? ORDER BY type ASC LIMIT ?`)
+        .all(userId, category, category, q, limit) as any[];
+    } else {
+      rows = db.prepare(`SELECT DISTINCT type FROM health_data WHERE user_id = ? AND (? IS NULL OR category = ?) ORDER BY type ASC LIMIT ?`)
+        .all(userId, category, category, limit) as any[];
+    }
     res.json(rows.map(r => r.type));
-  } catch (e:any) {
+  } catch (e: any) {
     logger.error('health-data/types failed', { error: e.message });
     res.status(500).json({ error: 'failed' });
   }

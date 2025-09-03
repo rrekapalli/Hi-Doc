@@ -88,6 +88,8 @@ class _TrendsScaffoldState extends State<_TrendsScaffold> {
                     child: Column(
                       children: [
                         const SizedBox(height: 12),
+                        const _TypeSearchDropdown(),
+                        const SizedBox(height: 8),
                         _RangeChips(
                           selected: tp.range,
                           onSelected: tp.setRange,
@@ -109,6 +111,101 @@ class _TrendsScaffoldState extends State<_TrendsScaffold> {
             );
         },
       ),
+    );
+  }
+}
+
+class _TypeSearchDropdown extends StatelessWidget {
+  const _TypeSearchDropdown();
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<TrendsProvider>(
+      builder: (context, tp, _) {
+        // Loading state
+        if (tp.isLoadingTypes && tp.types.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: SizedBox(height: 48, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+          );
+        }
+        // Error state
+        if (tp.typesError != null && tp.types.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Indicator',
+              ),
+              child: Text('Error: ${tp.typesError}'),
+            ),
+          );
+        }
+        final selectedDesc = tp.descriptionForCode(tp.selectedType ?? '');
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Autocomplete<String>(
+            initialValue: TextEditingValue(text: selectedDesc ?? ''),
+            optionsBuilder: (TextEditingValue value) {
+              final q = value.text.toLowerCase().trim();
+              if (q.isEmpty) return tp.descriptions;
+              return tp.descriptions.where((d)=> d.toLowerCase().contains(q));
+            },
+            onSelected: (val) {
+              tp.setSelectedType(val);
+              // Dismiss keyboard after selection
+              FocusScope.of(context).unfocus();
+            },
+            fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+              return TextField(
+                controller: controller,
+                focusNode: focusNode,
+                decoration: const InputDecoration(
+                  labelText: 'Indicator',
+                  hintText: 'Search indicator description',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                textInputAction: TextInputAction.search,
+                onChanged: (val) {
+                  context.read<TrendsProvider>().searchTypes(val);
+                },
+                onSubmitted: (_) => onFieldSubmitted(),
+              );
+            },
+            optionsViewBuilder: (context, onSelected, options) {
+              final theme = Theme.of(context);
+              return Align(
+                alignment: Alignment.topLeft,
+                child: Material(
+                  elevation: 4,
+                  borderRadius: BorderRadius.circular(8),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 300, minWidth: 260),
+                    child: ListView.builder(
+                      padding: EdgeInsets.zero,
+                      itemCount: options.length,
+                      itemBuilder: (context, index) {
+                        final opt = options.elementAt(index);
+                        final selected = opt == selectedDesc;
+                        final code = tp.codeForDescription(opt) ?? '';
+                        return ListTile(
+                          dense: true,
+                          title: Text(opt, style: selected ? theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold) : null),
+                          subtitle: Text(code, style: theme.textTheme.bodySmall),
+                          trailing: selected ? const Icon(Icons.check, size: 18) : null,
+                          onTap: () => onSelected(opt),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }

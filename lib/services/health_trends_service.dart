@@ -19,9 +19,28 @@ class HealthTrendsService {
   }
 
   /// Fetch distinct indicator types for the current user.
+  /// Optional server-side search: pass [query] to filter by prefix/substring.
   /// Tries GET /api/health-data/types then falls back to param_targets.
-  Future<List<String>> fetchIndicatorTypes() async {
-    // Primary endpoint (may not exist yet)
+  Future<List<String>> fetchIndicatorTypes({String? query}) async {
+    // Prefer authoritative param_targets list (full set of codes)
+    try {
+      final resp = await http.get(Uri.parse('${AppConfig.backendBaseUrl}/api/param-targets'), headers: await _headers());
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body);
+        if (list is List) {
+          var codes = list.map((e) => (e['param_code'] as String?) ?? '').where((s) => s.isNotEmpty).toSet().toList();
+          codes.sort((a,b)=>a.toLowerCase().compareTo(b.toLowerCase()));
+          if (query != null && query.isNotEmpty) {
+            final q = query.toLowerCase();
+            codes = codes.where((c)=>c.toLowerCase().contains(q)).toList();
+          }
+            return codes;
+        }
+      }
+    } catch (e) {
+      debugPrint('fetchIndicatorTypes param_targets failed: $e');
+    }
+    // Fallback to existing recorded types if param_targets fails
     try {
       final resp = await http.get(Uri.parse('${AppConfig.backendBaseUrl}/api/health-data/types'), headers: await _headers());
       if (resp.statusCode == 200) {
@@ -29,25 +48,33 @@ class HealthTrendsService {
         if (data is List) {
           return data.map((e) => e.toString()).toList();
         }
-        if (data is Map && data['items'] is List) {
-          return (data['items'] as List).map((e) => e.toString()).toList();
-        }
       }
-    } catch (_) {
-      // ignore and fallback
-    }
-    // Fallback: use param_targets list
+    } catch (_) {}
+    return [];
+  }
+
+  /// Fetch indicator metadata (code + description) from param_targets.
+  Future<List<Map<String,String>>> fetchIndicatorMeta({String? query}) async {
     try {
       final resp = await http.get(Uri.parse('${AppConfig.backendBaseUrl}/api/param-targets'), headers: await _headers());
       if (resp.statusCode == 200) {
         final list = jsonDecode(resp.body);
         if (list is List) {
-          return list.map((e) => (e['param_code'] as String?) ?? '').where((s) => s.isNotEmpty).toList();
+          Iterable<Map<String,String>> rows = list.map((e){
+            final code = e['param_code']?.toString() ?? '';
+            final desc = e['description']?.toString() ?? code;
+            return {'code': code, 'description': desc};
+          }).where((m)=>m['code']!.isNotEmpty);
+          if (query != null && query.isNotEmpty) {
+            final q = query.toLowerCase();
+            rows = rows.where((m)=> m['code']!.toLowerCase().contains(q) || m['description']!.toLowerCase().contains(q));
+          }
+          final listOut = rows.toList();
+          listOut.sort((a,b)=>a['description']!.toLowerCase().compareTo(b['description']!.toLowerCase()));
+          return listOut;
         }
       }
-    } catch (e) {
-      debugPrint('fetchIndicatorTypes fallback failed: $e');
-    }
+    } catch (e) { debugPrint('fetchIndicatorMeta failed: $e'); }
     return [];
   }
 
