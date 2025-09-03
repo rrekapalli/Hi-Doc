@@ -13,22 +13,18 @@
   <!-- Web app manifest -->
   <link rel="manifest" href="manifest.json">
   
-  <!-- Flutter web configuration -->
+  <!-- Flutter web configuration (modern initializer) -->
   <script>
-    // Configure Flutter web settings
-    window.flutterConfiguration = {
-      canvasKitBaseUrl: "/canvaskit/",
-      // Increase channel buffer sizes to prevent message discarding
+    window.__hidocConfig = {
+      renderer: 'canvaskit',
       channelBuffers: {
-        "flutter/lifecycle": 15,
-        "flutter/platform": 15,
-        "flutter/settings": 15,
-        "flutter/textinput": 15,
-        "flutter/accessibility": 10,
-        "flutter/semantics": 10
-      },
-      // Performance optimizations
-      renderer: "canvaskit"
+        'flutter/lifecycle': 15,
+        'flutter/platform': 15,
+        'flutter/settings': 15,
+        'flutter/textinput': 15,
+        'flutter/accessibility': 10,
+        'flutter/semantics': 10
+      }
     };
   </script>
 </head>
@@ -43,42 +39,17 @@
     cMapPacked: true,
   }
   </script>
-  <!-- pdfx plugin requirement: include pdf.js before main.dart.js. Try common asset paths. -->
-  <!-- Primary path (after running: flutter pub run pdfx:install_web) -->
-  <script src="assets/packages/pdfx/assets/pdfjs/pdf.js"></script>
-  <!-- Alternate path with build/ subfolder (some package versions) -->
+  <!-- pdfx: use CDN pdf.js (local asset variant 404ed) -->
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.js"></script>
   <script>
-    if (typeof pdfjsLib === 'undefined') {
-      var s = document.createElement('script');
-      s.src = 'assets/packages/pdfx/assets/pdfjs/build/pdf.js';
-      document.head.appendChild(s);
-    }
-  </script>
-  <!-- Fallback stub to avoid early assertion if asset 404s (will be overwritten once real pdf.js loads) -->
-  <script>
-    if (typeof pdfjsLib === 'undefined') { window.pdfjsLib = { GlobalWorkerOptions: { } }; }
-  </script>
-  <script>
-    (function waitForPdfJs(attempt){
+    (function ensureWorker(){
       if (typeof pdfjsLib !== 'undefined') {
-        var workerCandidates = [
-          'assets/packages/pdfx/assets/pdfjs/pdf.worker.js',
-          'assets/packages/pdfx/assets/pdfjs/build/pdf.worker.js'
-        ];
-        for (var i=0;i<workerCandidates.length;i++) {
-          if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = workerCandidates[i];
-          }
-        }
-        console.log('[pdfx] pdfjsLib loaded, worker set to', pdfjsLib.GlobalWorkerOptions.workerSrc);
-        return;
-      }
-      if (attempt < 20) { // retry up to ~1s (20 * 50ms)
-        setTimeout(function(){ waitForPdfJs(attempt+1); }, 50);
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.worker.js';
+        console.log('[pdfx] pdfjs via CDN, worker set');
       } else {
-        console.error('[pdfx] pdfjsLib still undefined after attempts. Verify assets copied: run "flutter pub run pdfx:install_web"');
+        console.error('[pdfx] pdfjsLib missing after CDN include');
       }
-    })(0);
+    })();
   </script>
   <!-- Load Flutter app -->
   <script>
@@ -93,7 +64,42 @@
       };
       WP.__hidocPatched = true;
     })();
+
+    // Additional diagnostic + guard: wrap WebSocket.send & window.postMessage to log first null attempt.
+    (function(){
+      // Guard WebSocket.send
+      if (window.WebSocket && !window.WebSocket.__hidocPatched) {
+        var WSP = window.WebSocket.prototype;
+        var origSend = WSP.send;
+        var warned = false;
+        WSP.send = function(data){
+          if (data == null) {
+            if (!warned) { console.warn('[HiDocGuard] Blocked null WebSocket.send; stack=', new Error().stack); warned = true; }
+            return; // swallow
+          }
+          return origSend.call(this, data);
+        };
+        window.WebSocket.__hidocPatched = true;
+      }
+
+      // Guard global postMessage (e.g., window -> iframe / worker) to detect null payloads
+      try {
+        var origWinPost = window.postMessage;
+        if (!origWinPost.__hidocPatched) {
+          var flagged = false;
+          window.postMessage = function(message, targetOrigin, transfer){
+            if (message == null) {
+              if (!flagged) { console.warn('[HiDocGuard] Blocked null window.postMessage; stack=', new Error().stack); flagged = true; }
+              return;
+            }
+            return origWinPost.call(this, message, targetOrigin, transfer);
+          };
+          window.postMessage.__hidocPatched = true;
+        }
+      } catch(_) {}
+    })();
   </script>
-  <script src="main.dart.js" type="application/javascript"></script>
+  <!-- Flutter bootstrap (deprecation-safe) -->
+  <script src="main.dart.js" type="application/javascript" defer></script>
 </body>
 </html>
