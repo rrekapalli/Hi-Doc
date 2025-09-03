@@ -486,9 +486,8 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   Widget build(BuildContext context) {
     final provider = context.watch<MedicationsProvider>();
     return Scaffold(
-      appBar: HiDocAppBar(
+      appBar: const HiDocAppBar(
         pageTitle: 'Medications',
-        actions: [IconButton(icon: const Icon(Icons.add), onPressed: _openWizard)],
       ),
       floatingActionButton: (_showLoading || provider.loading)
           ? null

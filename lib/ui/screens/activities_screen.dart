@@ -34,16 +34,8 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
     final activities = activitiesProvider.activities;
 
     return Scaffold(
-      appBar: HiDocAppBar(
+      appBar: const HiDocAppBar(
         pageTitle: 'Activities',
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_outline),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const UserSettingsScreen()),
-            ),
-          )
-        ],
       ),
       body: RefreshIndicator(
         onRefresh: () async => activitiesProvider.load(),

@@ -78,50 +78,7 @@ class _ProfileConversationsScreenState extends State<ProfileConversationsScreen>
     if (widget.embedded) return content;
 
     return Scaffold(
-      appBar: HiDocAppBar(
-        pageTitle: widget.title,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            tooltip: 'Debug Message Counts',
-            onPressed: () async {
-              final chat = context.read<ChatProvider>();
-              final messenger = ScaffoldMessenger.of(context);
-              await chat.debugMessageCounts();
-              if (!mounted) return;
-              messenger.showSnackBar(
-                const SnackBar(content: Text('Check console for message counts'), duration: Duration(seconds: 2)),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.clear_all),
-            tooltip: 'Clear All Messages',
-            onPressed: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              final chat = context.read<ChatProvider>();
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Clear All Messages'),
-                  content: const Text('This will delete all chat messages. Are you sure?'),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                    TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Clear All')),
-                  ],
-                ),
-              );
-              if (confirmed == true && mounted) {
-                await chat.clearAllMessages();
-                if (!mounted) return; // safety
-                messenger.showSnackBar(
-                  const SnackBar(content: Text('All messages cleared'), duration: Duration(seconds: 2)),
-                );
-              }
-            },
-          ),
-        ],
-      ),
+  appBar: HiDocAppBar(pageTitle: widget.title),
       body: content,
     );
   }

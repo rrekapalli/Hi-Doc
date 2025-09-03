@@ -177,16 +177,8 @@ class _DataScreenState extends State<DataScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     return Scaffold(
-      appBar: HiDocAppBar(
+      appBar: const HiDocAppBar(
         pageTitle: 'Data Browser',
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _selectedTable == null
-                ? _fetchTables
-                : () => _fetchRows(page: _page),
-          ),
-        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(12.0),
@@ -194,10 +186,7 @@ class _DataScreenState extends State<DataScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              const Text(
-                'Table:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+              const Text('Table:', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(width: 12),
               Expanded(
                 child: DropdownButton<String>(
@@ -205,12 +194,7 @@ class _DataScreenState extends State<DataScreen> {
                   hint: const Text('Select table'),
                   isExpanded: true,
                   items: _tables
-                      .map(
-                        (t) => DropdownMenuItem(
-                          value: t,
-                          child: Text(t),
-                        ),
-                      )
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                       .toList(),
                   onChanged: (v) {
                     setState(() {
@@ -221,6 +205,11 @@ class _DataScreenState extends State<DataScreen> {
                   },
                 ),
               ),
+              IconButton(
+                tooltip: 'Refresh',
+                icon: const Icon(Icons.refresh),
+                onPressed: _selectedTable == null ? _fetchTables : () => _fetchRows(page: _page),
+              )
             ]),
             if (_selectedTable != null) ...[
               const SizedBox(height: 8),

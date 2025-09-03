@@ -7,13 +7,17 @@ import 'profile_switch_dialog.dart';
 
 class HiDocAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String pageTitle;
-  final List<Widget>? actions;
+  // App-wide policy: only two top-level actions (Data + Profile). Any per-page
+  // actions should be moved into the page body (toolbars, FABs, etc.). The
+  // legacy `actions` argument is kept temporarily for backward compatibility
+  // but ignored to enforce consistency.
+  final List<Widget>? actions; // ignored
   final double subtitleHeight = 36.0;
 
   const HiDocAppBar({
     super.key,
     required this.pageTitle,
-    this.actions,
+  this.actions,
   });
 
   @override
@@ -72,7 +76,7 @@ class HiDocAppBar extends StatelessWidget implements PreferredSizeWidget {
             },
           );
         }),
-        if (actions != null) ...actions!,
+        // Per-page actions intentionally suppressed.
       ],
       bottom: PreferredSize(
         preferredSize: Size.fromHeight(subtitleHeight),

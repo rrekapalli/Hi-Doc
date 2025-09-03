@@ -229,10 +229,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: HiDocAppBar(pageTitle: 'Reports', actions: [
-        IconButton(icon: const Icon(Icons.refresh), onPressed: _loadReports, tooltip: 'Refresh'),
-        IconButton(icon: const Icon(Icons.person_outline), onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const UserSettingsScreen()))),
-      ]),
+  appBar: const HiDocAppBar(pageTitle: 'Reports'),
       body: _isLoading ? const Center(child: CircularProgressIndicator()) : Consumer<ReportsProvider>(
         builder: (context, rp, _) {
           if (rp.isLoading) return const Center(child: CircularProgressIndicator());
@@ -264,9 +261,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
           return RefreshIndicator(
             onRefresh: _loadReports,
             child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: reports.length,
-              itemBuilder: (c, i) => _buildReportCard(reports[i]),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              itemCount: reports.length + 1,
+              itemBuilder: (c, i) {
+                if (i == 0) {
+                  return Row(
+                    children: [
+                      Text('Reports', style: Theme.of(context).textTheme.titleMedium),
+                      const Spacer(),
+                      IconButton(icon: const Icon(Icons.refresh), tooltip: 'Refresh', onPressed: _loadReports),
+                    ],
+                  );
+                }
+                return _buildReportCard(reports[i - 1]);
+              },
             ),
           );
         },

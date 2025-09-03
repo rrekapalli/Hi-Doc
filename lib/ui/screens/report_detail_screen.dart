@@ -102,41 +102,36 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: HiDocAppBar(
+      appBar: const HiDocAppBar(
         pageTitle: 'Report Details',
-        actions: [
-          if (!widget.report.parsed && !_isParsingData)
-            IconButton(
-              onPressed: _parseReport,
-              icon: const Icon(Icons.auto_fix_high),
-              tooltip: 'Parse with AI',
-            ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'share') {
-                // TODO: Implement sharing
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Sharing feature coming soon')),
-                );
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'share',
-                child: Row(
-                  children: [
-                    Icon(Icons.share, size: 20),
-                    SizedBox(width: 8),
-                    Text('Share'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
       ),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Row(
+              children: [
+                if (!widget.report.parsed)
+                  FilledButton.icon(
+                    onPressed: _isParsingData ? null : _parseReport,
+                    icon: _isParsingData
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.auto_fix_high),
+                    label: const Text('Parse with AI'),
+                  ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Sharing feature coming soon')),
+                    );
+                  },
+                  icon: const Icon(Icons.share_outlined),
+                  label: const Text('Share'),
+                ),
+              ],
+            ),
+          ),
           // Report info header
           Container(
             width: double.infinity,

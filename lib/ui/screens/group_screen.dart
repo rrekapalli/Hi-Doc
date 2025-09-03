@@ -7,16 +7,8 @@ class ActivitiesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: HiDocAppBar(
+      appBar: const HiDocAppBar(
         pageTitle: 'Activities',
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_outline),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const UserSettingsScreen()),
-            ),
-          )
-        ],
       ),
       body: const Center(child: Text('Activity management (TODO)')),
       floatingActionButton: FloatingActionButton(
