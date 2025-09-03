@@ -55,25 +55,45 @@ class _ProfileConversationsScreenState extends State<ProfileConversationsScreen>
   @override
   Widget build(BuildContext context) {
     final chat = context.watch<ChatProvider>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
+      }
+    });
 
-    final content = Column(
-      children: [
-        Expanded(
-          child: ListView.builder(
-            controller: _scrollController,
-            reverse: true,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            itemCount: chat.messages.length,
-            itemBuilder: (ctx, i) {
-              final msg = chat.messages[chat.messages.length - 1 - i];
-              final loading = chat.isLoading(msg.id);
-              return _buildChatBubble(msg, loading, context);
-            },
+    Widget messagesBody;
+    if (chat.loadingMessages && chat.messages.isEmpty) {
+      messagesBody = const Center(child: CircularProgressIndicator());
+    } else if (!chat.loadingMessages && chat.messages.isEmpty) {
+      messagesBody = Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Text(
+            'No messages yet. Share a health update to get started.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
           ),
         ),
-        _buildComposer(context),
-      ],
-    );
+      );
+    } else {
+      messagesBody = ListView.builder(
+        controller: _scrollController,
+        reverse: true,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        itemCount: chat.messages.length,
+        itemBuilder: (ctx, i) {
+          final msg = chat.messages[chat.messages.length - 1 - i];
+          final loading = chat.isLoading(msg.id);
+          return _buildChatBubble(msg, loading, context);
+        },
+      );
+    }
+
+    final content = Column(children: [Expanded(child: messagesBody), _buildComposer(context)]);
 
     if (widget.embedded) return content;
 
@@ -144,94 +164,98 @@ class _ProfileConversationsScreenState extends State<ProfileConversationsScreen>
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.75,
             ),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: isUser ? const Color(0xFFE3F2FD) : const Color(0xFFF5F5F5),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(isUser ? 16 : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : 16),
+            child: IntrinsicWidth( // shrink-to-fit width up to maxWidth
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: isUser ? const Color(0xFFE3F2FD) : const Color(0xFFF5F5F5),
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(16),
+                    topRight: const Radius.circular(16),
+                    bottomLeft: Radius.circular(isUser ? 16 : 4),
+                    bottomRight: Radius.circular(isUser ? 4 : 16),
+                  ),
                 ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      msg.text,
-                      style: TextStyle(
-                        color: isUser ? const Color(0xFF1565C0) : const Color(0xFF424242),
-                        fontSize: 14,
-                        height: 1.3,
-                      ),
-                    ),
-                    if (loading)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: const [
-                            SizedBox(
-                              width: 12,
-                              height: 12,
-                              child: CircularProgressIndicator(strokeWidth: 1.5),
-                            ),
-                            SizedBox(width: 6),
-                            Text('Analyzing...', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                          ],
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Text determines intrinsic width; long lines wrap when exceeding maxWidth.
+                      Text(
+                        msg.text,
+                        style: TextStyle(
+                          color: isUser ? const Color(0xFF1565C0) : const Color(0xFF424242),
+                          fontSize: 14,
+                          height: 1.3,
                         ),
+                        softWrap: true,
                       ),
-                    if (msg.parsedEntry != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.check_circle_outline, size: 12, color: Colors.green[700]),
-                            const SizedBox(width: 3),
-                            Text('Health data recorded', style: TextStyle(fontSize: 10, color: Colors.green[700], fontWeight: FontWeight.w500)),
-                          ],
-                        ),
-                      ),
-                    if (msg.aiErrorReason != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.info_outline, size: 12, color: Colors.orange),
-                            const SizedBox(width: 3),
-                            const Text(
-                              'Message stored',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.orange,
-                                fontWeight: FontWeight.w500,
+                      if (loading)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(strokeWidth: 1.5),
                               ),
+                              SizedBox(width: 6),
+                              Text('Analyzing...', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                            ],
+                          ),
+                        ),
+                      if (msg.parsedEntry != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle_outline, size: 12, color: Colors.green[700]),
+                              const SizedBox(width: 3),
+                              Text('Health data recorded', style: TextStyle(fontSize: 10, color: Colors.green[700], fontWeight: FontWeight.w500)),
+                            ],
+                          ),
+                        ),
+                      if (msg.aiErrorReason != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.info_outline, size: 12, color: Colors.orange),
+                              const SizedBox(width: 3),
+                              const Text(
+                                'Message stored',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text(
+                              _formatTime(msg.timestamp),
+                              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                             ),
+                            if (!loading && isUser) ...[
+                              const SizedBox(width: 4),
+                              _buildStatusIcon(msg, theme),
+                            ],
                           ],
                         ),
                       ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Text(
-                            _formatTime(msg.timestamp),
-                            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                          ),
-                          if (!loading && isUser) ...[
-                            const SizedBox(width: 4),
-                            _buildStatusIcon(msg, theme),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -18,12 +18,14 @@ class ChatProvider extends ChangeNotifier {
   final List<ChatMessage> _messages = [];
   final Set<String> _loading = {};
   String? _currentProfileId;
+  bool _loadingMessages = false; // track initial/history load
 
   List<ChatMessage> get messages => _currentProfileId == null 
     ? List.unmodifiable(_messages)
     : List.unmodifiable(_messages.where((m) => m.profileId == _currentProfileId).toList());
 
   String? get currentProfileId => _currentProfileId;
+  bool get loadingMessages => _loadingMessages;
 
   ChatProvider({required this.db, this.authService});
 
@@ -151,6 +153,9 @@ class ChatProvider extends ChangeNotifier {
       if (kDebugMode) debugPrint('No profile ID provided for loading messages');
       return;
     }
+  if (_loadingMessages) return; // prevent duplicate concurrent loads
+  _loadingMessages = true;
+  notifyListeners();
     
     try {
       // Get authentication headers
@@ -239,14 +244,19 @@ class ChatProvider extends ChangeNotifier {
         if (kDebugMode) {
           debugPrint('Failed to load messages from backend: ${response.statusCode}');
         }
+        _loadingMessages = false;
         notifyListeners();
       }
     } catch (e) {
       if (kDebugMode) {
         debugPrint('Failed to load messages: $e');
       }
+      _loadingMessages = false;
       notifyListeners();
+      return;
     }
+    _loadingMessages = false;
+    notifyListeners();
   }
 
   Future<void> debugMessageCounts() async {
