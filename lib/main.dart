@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'providers/chat_provider.dart';
+import 'providers/selected_profile_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/reports_provider.dart';
+import 'providers/activities_provider.dart';
+import 'providers/trends_provider.dart';
+import 'services/health_trends_service.dart';
 import 'services/database_service.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
@@ -12,6 +16,7 @@ import 'ui/screens/home_shell.dart';
 import 'ui/screens/login_screen.dart';
 import 'config/app_config.dart';
 import 'ui/common/app_theme.dart';
+import 'providers/medications_provider.dart';
 
 void main() async {
   // Ensure Flutter is properly initialized
@@ -56,9 +61,41 @@ class HiDocApp extends StatelessWidget {
         Provider<DatabaseService>.value(value: db),
         Provider<AuthService>.value(value: authService),
         ChangeNotifierProvider(create: (_) => AuthProvider(authService)),
-        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+  ChangeNotifierProvider(create: (_) => SettingsProvider()),
+  ChangeNotifierProvider(create: (_) => SelectedProfileProvider()),
+        // Medications provider (normalized schema) – uses default profile id after SelectedProfileProvider
+        ChangeNotifierProxyProvider<SelectedProfileProvider, MedicationsProvider>(
+          create: (context) => MedicationsProvider(
+            db: db,
+      // Standardized prototype user id (was prototype-user-12345 in some places causing mismatch)
+      userId: 'prototype-user',
+            profileId: context.read<SelectedProfileProvider>().selectedProfileId,
+          ),
+          update: (context, profile, previous) {
+            if (previous == null) {
+              return MedicationsProvider(
+                db: db,
+        userId: 'prototype-user',
+                profileId: profile.selectedProfileId,
+              );
+            }
+            if (previous.profileId != profile.selectedProfileId) {
+              previous
+                ..medications.clear()
+                ..loading = false; // reset
+              previous.load();
+            }
+            return previous;
+          },
+        ),
         ChangeNotifierProvider(create: (context) => ChatProvider(db: db, authService: context.read<AuthService>())),
         ChangeNotifierProvider(create: (_) => ReportsProvider()),
+  // Activities depends on ChatProvider for current profile
+        ChangeNotifierProxyProvider<ChatProvider, ActivitiesProvider>(
+          create: (context) => ActivitiesProvider(chatProvider: context.read<ChatProvider>()),
+          update: (context, chat, previous) => previous ?? ActivitiesProvider(chatProvider: chat),
+        ),
+  ChangeNotifierProvider(create: (context) => TrendsProvider(service: HealthTrendsService(context.read<AuthService>()))),
       ],
       child: Builder(builder: (context) {
         // Attach settings to chat provider (once)

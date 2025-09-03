@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
   is_external INTEGER DEFAULT 0
 );
 
--- Create conversations table
-CREATE TABLE IF NOT EXISTS conversations (
+-- Create profiles table (renamed from conversations)
+CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   title TEXT,
   type TEXT NOT NULL DEFAULT 'direct',
@@ -21,22 +21,22 @@ CREATE TABLE IF NOT EXISTS conversations (
   updated_at INTEGER NOT NULL
 );
 
--- Create conversation_members table
-CREATE TABLE IF NOT EXISTS conversation_members (
+-- Create profile_members table (renamed from conversation_members)
+CREATE TABLE IF NOT EXISTS profile_members (
   id TEXT PRIMARY KEY,
-  conversation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   is_admin INTEGER DEFAULT 0,
   joined_at INTEGER NOT NULL,
   last_read_at INTEGER NOT NULL,
-  FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Create messages table with conversation support
+-- Create messages table with profile support (conversation renamed to profile)
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
-  conversation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
   sender_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'user',
   content TEXT NOT NULL,
@@ -45,15 +45,15 @@ CREATE TABLE IF NOT EXISTS messages (
   interpretation_json TEXT,
   processed INTEGER DEFAULT 0,
   stored_record_id TEXT,
-  FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
   FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Create all other tables with conversation_id (except param_targets)
+-- Create all other tables with profile_id (except param_targets)
 CREATE TABLE IF NOT EXISTS health_data (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  conversation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
   type TEXT NOT NULL,
   category TEXT DEFAULT 'HEALTH_PARAMS',
   value TEXT,
@@ -63,41 +63,85 @@ CREATE TABLE IF NOT EXISTS health_data (
   notes TEXT,
   report_id TEXT, -- optional link to the report it came from
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE
 );
 
+-- Normalized Medications Schema
+-- 1) medications: base drug record per user+profile
 CREATE TABLE IF NOT EXISTS medications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  conversation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
   name TEXT NOT NULL,
-  dosage TEXT,
-  schedule TEXT,
-  duration_days INTEGER,
-  is_forever INTEGER DEFAULT 0,
-  start_date INTEGER,
+  notes TEXT,
+  medication_url TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+
+-- 2) medication_schedules: recurrence window & configuration
+CREATE TABLE IF NOT EXISTS medication_schedules (
+  id TEXT PRIMARY KEY,
+  medication_id TEXT NOT NULL,
+  schedule TEXT NOT NULL,              -- human-readable frequency descriptor
+  frequency_per_day INTEGER,           -- optional; e.g. 2
+  is_forever INTEGER DEFAULT 0,        -- 1=indefinite
+  start_date INTEGER,                  -- epoch ms
+  end_date INTEGER,                    -- nullable if is_forever=1
+  days_of_week TEXT,                   -- CSV of MON,TUE,... or 0-6
+  timezone TEXT,                       -- IANA TZ
+  reminder_enabled INTEGER DEFAULT 1,  -- 1=on
+  FOREIGN KEY(medication_id) REFERENCES medications(id) ON DELETE CASCADE
+);
+
+-- 3) medication_schedule_times: specific dose times & dosage meta
+CREATE TABLE IF NOT EXISTS medication_schedule_times (
+  id TEXT PRIMARY KEY,
+  schedule_id TEXT NOT NULL,
+  time_local TEXT NOT NULL,            -- HH:MM 24h in schedule timezone
+  dosage TEXT,                         -- free text: "1 tab (500 mg)"
+  dose_amount REAL,
+  dose_unit TEXT,
+  instructions TEXT,                   -- e.g., before breakfast
+  prn INTEGER DEFAULT 0,               -- 1=as needed
+  sort_order INTEGER,
+  next_trigger_ts INTEGER,             -- cached next notification time
+  FOREIGN KEY(schedule_id) REFERENCES medication_schedules(id) ON DELETE CASCADE
+);
+
+-- 4) medication_intake_logs: adherence tracking
+CREATE TABLE IF NOT EXISTS medication_intake_logs (
+  id TEXT PRIMARY KEY,
+  schedule_time_id TEXT NOT NULL,
+  taken_ts INTEGER NOT NULL,
+  status TEXT NOT NULL,                -- taken|missed|skipped|snoozed
+  actual_dose_amount REAL,
+  actual_dose_unit TEXT,
+  notes TEXT,
+  FOREIGN KEY(schedule_time_id) REFERENCES medication_schedule_times(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS reports (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  conversation_id TEXT, -- nullable, if report came from a conversation
+  profile_id TEXT, -- nullable, if report came from a profile
   file_path TEXT NOT NULL, -- local path to scanned image or PDF
   file_type TEXT NOT NULL, -- e.g. 'pdf', 'image'
-  source TEXT NOT NULL, -- 'camera', 'upload', 'conversation'
+  source TEXT NOT NULL, -- 'camera', 'upload', 'profile'
   ai_summary TEXT, -- summary generated by AI agent
   created_at INTEGER NOT NULL,
   parsed INTEGER DEFAULT 0, -- 0 = not parsed, 1 = parsed
+  original_file_name TEXT, -- original uploaded filename
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS reminders (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  conversation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
   medication_id TEXT,
   title TEXT NOT NULL,
   time TEXT NOT NULL,
@@ -106,14 +150,14 @@ CREATE TABLE IF NOT EXISTS reminders (
   days TEXT,
   active INTEGER DEFAULT 1,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
   FOREIGN KEY(medication_id) REFERENCES medications(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS activities (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  conversation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
   name TEXT NOT NULL,
   duration_minutes INTEGER,
   distance_km REAL,
@@ -122,10 +166,10 @@ CREATE TABLE IF NOT EXISTS activities (
   timestamp INTEGER NOT NULL,
   notes TEXT,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE
 );
 
--- Create param_targets table (no conversation_id needed as requested)
+-- Create param_targets table (no profile_id needed as requested)
 CREATE TABLE IF NOT EXISTS param_targets (
   param_code TEXT PRIMARY KEY,
   target_min REAL,
@@ -139,19 +183,29 @@ CREATE TABLE IF NOT EXISTS param_targets (
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_health_data_user_ts ON health_data(user_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_health_data_category ON health_data(category);
-CREATE INDEX IF NOT EXISTS idx_health_data_conversation ON health_data(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_health_data_profile ON health_data(profile_id);
 CREATE INDEX IF NOT EXISTS idx_medications_user ON medications(user_id);
-CREATE INDEX IF NOT EXISTS idx_medications_conversation ON medications(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_medications_profile ON medications(profile_id);
+CREATE INDEX IF NOT EXISTS idx_medications_name ON medications(name);
+CREATE INDEX IF NOT EXISTS idx_schedules_medication ON medication_schedules(medication_id);
+CREATE INDEX IF NOT EXISTS idx_schedules_active_window ON medication_schedules(start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_times_schedule ON medication_schedule_times(schedule_id);
+CREATE INDEX IF NOT EXISTS idx_times_trigger ON medication_schedule_times(next_trigger_ts);
+CREATE INDEX IF NOT EXISTS idx_intake_logs_time ON medication_intake_logs(taken_ts);
 CREATE INDEX IF NOT EXISTS idx_reports_user ON reports(user_id);
-CREATE INDEX IF NOT EXISTS idx_reports_conversation ON reports(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_reports_profile ON reports(profile_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id);
-CREATE INDEX IF NOT EXISTS idx_reminders_conversation ON reminders(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_profile ON reminders(profile_id);
 CREATE INDEX IF NOT EXISTS idx_activities_user ON activities(user_id);
-CREATE INDEX IF NOT EXISTS idx_activities_conversation ON activities(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_conversation_members_user ON conversation_members(user_id);
-CREATE INDEX IF NOT EXISTS idx_conversation_members_convo ON conversation_members(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_messages_conversation_time ON messages(conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activities_profile ON activities(profile_id);
+CREATE INDEX IF NOT EXISTS idx_profile_members_user ON profile_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_profile_members_convo ON profile_members(profile_id);
+CREATE INDEX IF NOT EXISTS idx_messages_profile_time ON messages(profile_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+-- Additional composite indexes (previously added via migrate step)
+CREATE INDEX IF NOT EXISTS idx_health_data_user_type_ts ON health_data(user_id, type, timestamp);
+CREATE INDEX IF NOT EXISTS idx_activities_user_ts ON activities(user_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_messages_sender_profile_time ON messages(sender_id, profile_id, created_at);
 
 -- Insert seed data
 -- Create default user for development
@@ -171,8 +225,8 @@ INSERT OR IGNORE INTO users (id, name, email, photo_url) VALUES
   ('user-009', 'Ivy Chen', 'ivy.chen@example.com', NULL),
   ('user-010', 'Jack Roberts', 'jack.roberts@example.com', NULL);
 
--- Create default conversation
-INSERT OR IGNORE INTO conversations (
+-- Create default profile
+INSERT OR IGNORE INTO profiles (
   id,
   title,
   type,
@@ -180,7 +234,7 @@ INSERT OR IGNORE INTO conversations (
   created_at,
   updated_at
 ) VALUES (
-  'default-conversation',
+  'default-profile',
   'Me',
   'direct',
   1,
@@ -188,19 +242,103 @@ INSERT OR IGNORE INTO conversations (
   strftime('%s', 'now') * 1000
 );
 
--- Add dev user to default conversation
-INSERT OR IGNORE INTO conversation_members (
+-- Add dev user to default profile
+INSERT OR IGNORE INTO profile_members (
   id,
-  conversation_id,
+  profile_id,
   user_id,
   is_admin,
   joined_at,
   last_read_at
 ) VALUES (
   'member_default_prototype-user-12345',
-  'default-conversation',
+  'default-profile',
   'prototype-user-12345',
   1,
   strftime('%s', 'now') * 1000,
   strftime('%s', 'now') * 1000
 );
+
+-- Seed param_targets (authoritative full list). Using OR REPLACE so updates in this file propagate.
+INSERT OR REPLACE INTO param_targets (param_code, target_min, target_max, preferred_unit, description, notes, organ_system) VALUES
+('BMI', 18.5, 24.9, 'kg/m²', 'Body Mass Index', 'Healthy adult range', 'General'),
+('BP_SYS', 90, 120, 'mmHg', 'Systolic Blood Pressure', 'Resting measurement', 'Cardiovascular'),
+('BP_DIA', 60, 80, 'mmHg', 'Diastolic Blood Pressure', 'Resting measurement', 'Cardiovascular'),
+('HR', 60, 100, 'bpm', 'Resting Heart Rate', 'Adults at rest', 'Cardiovascular'),
+('RESP_RATE', 12, 20, 'breaths/min', 'Respiratory Rate', 'Adults at rest', 'Respiratory'),
+('TEMP', 36.5, 37.5, '°C', 'Body Temperature', 'Core temperature', 'General'),
+('WBC', 4.0, 11.0, 'x10^9/L', 'White Blood Cell Count', 'Leukocytes in blood', 'Immune/Hematology'),
+('RBC', 4.2, 6.1, 'x10^12/L', 'Red Blood Cell Count', 'Number of erythrocytes', 'Hematology'),
+('HGB', 13.5, 17.5, 'g/dL', 'Hemoglobin', 'Oxygen-carrying protein', 'Hematology'),
+('HCT', 38.8, 50.0, '%', 'Hematocrit', 'Proportion of red blood cells', 'Hematology'),
+('PLT', 150, 450, 'x10^9/L', 'Platelet Count', 'Blood clotting cells', 'Hematology'),
+('MCV', 80, 96, 'fL', 'Mean Corpuscular Volume', 'Average RBC size', 'Hematology'),
+('MCH', 27, 33, 'pg', 'Mean Corpuscular Hemoglobin', 'Hemoglobin per RBC', 'Hematology'),
+('MCHC', 32, 36, 'g/dL', 'Mean Corpuscular Hemoglobin Concentration', 'Hemoglobin concentration in RBCs', 'Hematology'),
+('GLU_FAST', 70, 100, 'mg/dL', 'Fasting Blood Glucose', '8–12 hours fasting', 'Metabolic'),
+('BUN', 7, 20, 'mg/dL', 'Blood Urea Nitrogen', 'Kidney function indicator', 'Renal'),
+('CREAT', 0.6, 1.3, 'mg/dL', 'Creatinine', 'Renal function marker', 'Renal'),
+('NA', 135, 145, 'mmol/L', 'Sodium', 'Electrolyte balance', 'Metabolic'),
+('K', 3.5, 5.0, 'mmol/L', 'Potassium', 'Electrolyte balance', 'Metabolic'),
+('CL', 98, 106, 'mmol/L', 'Chloride', 'Electrolyte balance', 'Metabolic'),
+('CO2', 23, 29, 'mmol/L', 'Bicarbonate', 'Acid-base balance', 'Metabolic'),
+('CA', 8.6, 10.2, 'mg/dL', 'Calcium', 'Bone & muscle function', 'Metabolic'),
+('PHOS', 2.5, 4.5, 'mg/dL', 'Phosphate', 'Bone & metabolic function', 'Metabolic'),
+('MG', 1.7, 2.2, 'mg/dL', 'Magnesium', 'Enzyme & nerve function', 'Metabolic'),
+('ALT', 7, 55, 'U/L', 'Alanine Aminotransferase', 'Liver enzyme', 'Liver'),
+('AST', 8, 48, 'U/L', 'Aspartate Aminotransferase', 'Liver enzyme', 'Liver'),
+('ALP', 44, 147, 'U/L', 'Alkaline Phosphatase', 'Bile duct & bone health', 'Liver'),
+('BILITOT', 0.1, 1.2, 'mg/dL', 'Total Bilirubin', 'Liver & hemolysis marker', 'Liver'),
+('BILIDIR', 0, 0.3, 'mg/dL', 'Direct Bilirubin', 'Conjugated bilirubin', 'Liver'),
+('ALB', 3.4, 5.4, 'g/dL', 'Albumin', 'Liver synthetic function', 'Liver'),
+('GGT', 9, 48, 'U/L', 'Gamma-Glutamyl Transferase', 'Liver & bile duct marker', 'Liver'),
+('TC', 125, 200, 'mg/dL', 'Total Cholesterol', 'Desirable range', 'Cardiovascular'),
+('LDL', 0, 100, 'mg/dL', 'Low-Density Lipoprotein', 'Bad cholesterol', 'Cardiovascular'),
+('HDL', 40, 60, 'mg/dL', 'High-Density Lipoprotein', 'Good cholesterol', 'Cardiovascular'),
+('TG', 0, 150, 'mg/dL', 'Triglycerides', 'Fat in blood', 'Cardiovascular'),
+('HBA1C', 4.0, 5.6, '%', 'Hemoglobin A1c', '3-month average glucose', 'Metabolic'),
+('FRUCTOSAMINE', 175, 280, 'µmol/L', 'Fructosamine', '2–3 week glucose control', 'Metabolic'),
+('TROPONIN_T', 0, 0.04, 'ng/mL', 'Troponin T', 'Heart attack marker', 'Cardiovascular'),
+('TROPONIN_I', 0, 0.04, 'ng/mL', 'Troponin I', 'Heart injury marker', 'Cardiovascular'),
+('CK_TOTAL', 20, 200, 'U/L', 'Creatine Kinase Total', 'Muscle breakdown', 'Musculoskeletal'),
+('CK_MB', 0, 5, 'ng/mL', 'Creatine Kinase-MB', 'Cardiac injury indicator', 'Cardiovascular'),
+('BNP', 0, 100, 'pg/mL', 'B-type Natriuretic Peptide', 'Heart failure marker', 'Cardiovascular'),
+('NT_PROBNP', 0, 125, 'pg/mL', 'N-terminal proBNP', 'Heart failure marker', 'Cardiovascular'),
+('ESR', 0, 20, 'mm/hr', 'Erythrocyte Sedimentation Rate', 'Inflammation indicator', 'Immune'),
+('CRP', 0, 3, 'mg/L', 'C-Reactive Protein', 'Acute inflammation marker', 'Immune'),
+('PROCAL', 0, 0.1, 'ng/mL', 'Procalcitonin', 'Bacterial infection marker', 'Immune'),
+('RF', 0, 14, 'IU/mL', 'Rheumatoid Factor', 'Autoimmune marker', 'Immune'),
+('ANA', 0, 0, 'titer', 'Antinuclear Antibody', 'Autoimmune screening', 'Immune'),
+('TSH', 0.4, 4.0, 'µIU/mL', 'Thyroid Stimulating Hormone', 'Thyroid function regulator', 'Endocrine'),
+('FT4', 0.8, 1.8, 'ng/dL', 'Free Thyroxine', 'Active thyroid hormone', 'Endocrine'),
+('FT3', 2.3, 4.2, 'pg/mL', 'Free Triiodothyronine', 'Active thyroid hormone', 'Endocrine'),
+('TOTAL_T4', 4.5, 12.0, 'µg/dL', 'Total Thyroxine', 'Total circulating T4', 'Endocrine'),
+('TOTAL_T3', 80, 200, 'ng/dL', 'Total Triiodothyronine', 'Total circulating T3', 'Endocrine'),
+('ANTI_TPO', 0, 35, 'IU/mL', 'Anti-Thyroid Peroxidase Antibody', 'Autoimmune thyroid disease marker', 'Immune'),
+('ANTI_TG', 0, 40, 'IU/mL', 'Anti-Thyroglobulin Antibody', 'Autoimmune thyroid disease marker', 'Immune'),
+('TESTOST_TOTAL', 300, 1000, 'ng/dL', 'Total Testosterone', 'Male hormone', 'Reproductive'),
+('TESTOST_FREE', 5, 21, 'ng/dL', 'Free Testosterone', 'Biologically active testosterone', 'Reproductive'),
+('ESTRADIOL', 15, 350, 'pg/mL', 'Estradiol', 'Female hormone', 'Reproductive'),
+('PROGEST', 0.1, 20, 'ng/mL', 'Progesterone', 'Menstrual & pregnancy hormone', 'Reproductive'),
+('FSH', 1.5, 12.4, 'mIU/mL', 'Follicle Stimulating Hormone', 'Reproductive hormone', 'Reproductive'),
+('LH', 1.7, 8.6, 'mIU/mL', 'Luteinizing Hormone', 'Reproductive hormone', 'Reproductive'),
+('PROLACTIN', 4.0, 23.0, 'ng/mL', 'Prolactin', 'Milk production hormone', 'Endocrine'),
+('AMH', 1.0, 4.0, 'ng/mL', 'Anti-Müllerian Hormone', 'Ovarian reserve marker', 'Reproductive'),
+('CORTISOL_AM', 5, 25, 'µg/dL', 'Cortisol (AM)', 'Stress & adrenal function', 'Endocrine'),
+('CORTISOL_PM', 2, 9, 'µg/dL', 'Cortisol (PM)', 'Stress & adrenal function', 'Endocrine'),
+('ACTH', 7.2, 63.3, 'pg/mL', 'Adrenocorticotropic Hormone', 'Stimulates cortisol release', 'Endocrine'),
+('ALDOST', 4, 31, 'ng/dL', 'Aldosterone', 'Blood pressure & salt balance', 'Endocrine'),
+('RENIN', 0.25, 5.82, 'ng/mL/hr', 'Plasma Renin Activity', 'Blood pressure regulation', 'Endocrine'),
+('VITD25OH', 30, 100, 'ng/mL', '25-Hydroxy Vitamin D', 'Vitamin D status', 'Nutritional'),
+('VITB12', 200, 900, 'pg/mL', 'Vitamin B12', 'Neurological function', 'Nutritional'),
+('FOLATE', 2.7, 17.0, 'ng/mL', 'Folate', 'DNA synthesis', 'Nutritional'),
+('VIT_A', 20, 60, 'µg/dL', 'Vitamin A', 'Vision & immune function', 'Nutritional'),
+('VIT_E', 5.5, 17.0, 'mg/L', 'Vitamin E', 'Antioxidant', 'Nutritional'),
+('VIT_K', 0.2, 3.2, 'ng/mL', 'Vitamin K', 'Blood clotting', 'Nutritional'),
+('ZINC', 60, 130, 'µg/dL', 'Zinc', 'Wound healing & immunity', 'Nutritional'),
+('COPPER', 70, 140, 'µg/dL', 'Copper', 'Enzyme cofactor', 'Nutritional'),
+('SELENIUM', 70, 150, 'µg/L', 'Selenium', 'Antioxidant enzyme cofactor', 'Nutritional'),
+('IRON', 50, 170, 'µg/dL', 'Serum Iron', 'Oxygen transport', 'Hematology'),
+('TIBC', 240, 450, 'µg/dL', 'Total Iron Binding Capacity', 'Iron metabolism', 'Hematology'),
+('FERRITIN', 30, 400, 'ng/mL', 'Ferritin', 'Iron storage', 'Hematology'),
+('TRANSFERRIN', 200, 360, 'mg/dL', 'Transferrin', 'Iron transport', 'Hematology');

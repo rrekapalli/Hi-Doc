@@ -1,7 +1,7 @@
-import { db, transaction } from './db';
+import { db, transaction } from './db.js';
 
-// Conversation related types
-export interface Conversation {
+// Profile related types (renamed from Conversation)
+export interface Profile {
   id: string;
   title?: string;
   type: 'direct' | 'group';
@@ -9,9 +9,9 @@ export interface Conversation {
   updated_at: number;
 }
 
-export interface ConversationMember {
+export interface ProfileMember {
   id: string;
-  conversation_id: string;
+  profile_id: string;
   user_id: string;
   is_admin: boolean;
   joined_at: number;
@@ -20,7 +20,7 @@ export interface ConversationMember {
 
 export interface Message {
   id: string;
-  conversation_id: string;
+  profile_id: string;
   sender_id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -31,52 +31,52 @@ export interface Message {
   stored_record_id?: string;
 }
 
-// Function to get user's conversations with latest message and unread count
-export function getConversations(userId: string) {
+// Function to get user's profiles with latest message and unread count
+export function getProfiles(userId: string) {
   return db.prepare(`
     WITH latest_messages AS (
       SELECT 
         m.*,
-        ROW_NUMBER() OVER (PARTITION BY m.conversation_id ORDER BY m.created_at DESC) as rn
+        ROW_NUMBER() OVER (PARTITION BY m.profile_id ORDER BY m.created_at DESC) as rn
       FROM messages m
-      JOIN conversation_members cm ON m.conversation_id = cm.conversation_id
-      WHERE cm.user_id = ?
+      JOIN profile_members pm ON m.profile_id = pm.profile_id
+      WHERE pm.user_id = ?
     ),
     unread_counts AS (
       SELECT 
-        m.conversation_id,
+        m.profile_id,
         COUNT(*) as count
       FROM messages m
-      JOIN conversation_members cm ON m.conversation_id = cm.conversation_id
-      WHERE cm.user_id = ?
-        AND m.created_at > cm.last_read_at
+      JOIN profile_members pm ON m.profile_id = pm.profile_id
+      WHERE pm.user_id = ?
+        AND m.created_at > pm.last_read_at
         AND m.sender_id != ?
-      GROUP BY m.conversation_id
+      GROUP BY m.profile_id
     )
     SELECT 
-      c.*,
+      p.*,
       GROUP_CONCAT(u.name) as member_names,
       lm.content as last_message,
       lm.created_at as last_message_at,
       COALESCE(uc.count, 0) as unread_count
-    FROM conversations c
-    JOIN conversation_members cm ON c.id = cm.conversation_id
-    JOIN users u ON cm.user_id = u.id
-    LEFT JOIN latest_messages lm ON c.id = lm.conversation_id AND lm.rn = 1
-    LEFT JOIN unread_counts uc ON c.id = uc.conversation_id
-    WHERE c.id IN (
-      SELECT conversation_id 
-      FROM conversation_members 
+    FROM profiles p
+    JOIN profile_members pm ON p.id = pm.profile_id
+    JOIN users u ON pm.user_id = u.id
+    LEFT JOIN latest_messages lm ON p.id = lm.profile_id AND lm.rn = 1
+    LEFT JOIN unread_counts uc ON p.id = uc.profile_id
+    WHERE p.id IN (
+      SELECT profile_id 
+      FROM profile_members 
       WHERE user_id = ?
     )
-    GROUP BY c.id
-    ORDER BY COALESCE(lm.created_at, c.created_at) DESC
+    GROUP BY p.id
+    ORDER BY COALESCE(lm.created_at, p.created_at) DESC
   `).all([userId, userId, userId, userId]);
 }
 
-// Function to get messages for a conversation
-export function getMessages(conversationId: string, userId: string, limit = 50, before?: number) {
-  const params: any[] = [conversationId];
+// Function to get messages for a profile
+export function getMessages(profileId: string, userId: string, limit = 50, before?: number) {
+  const params: any[] = [profileId];
   let sql = `
     SELECT 
       m.*,
@@ -84,7 +84,7 @@ export function getMessages(conversationId: string, userId: string, limit = 50, 
       u.id = ? as is_me
     FROM messages m
     JOIN users u ON m.sender_id = u.id
-    WHERE m.conversation_id = ?
+    WHERE m.profile_id = ?
   `;
   
   if (before) {
@@ -106,13 +106,13 @@ export function sendMessage(message: Omit<Message, 'id' | 'created_at'>) {
   
   db.prepare(`
     INSERT INTO messages (
-      id, conversation_id, sender_id, role, content, 
+      id, profile_id, sender_id, role, content, 
       content_type, created_at, interpretation_json,
       processed, stored_record_id
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run([
     messageId,
-    message.conversation_id,
+    message.profile_id,
     message.sender_id,
     message.role,
     message.content,
@@ -123,37 +123,37 @@ export function sendMessage(message: Omit<Message, 'id' | 'created_at'>) {
     message.stored_record_id
   ]);
   
-  // Update conversation's updated_at timestamp
+  // Update profile's updated_at timestamp
   db.prepare(`
-    UPDATE conversations 
+    UPDATE profiles 
     SET updated_at = ? 
     WHERE id = ?
-  `).run([now, message.conversation_id]);
+  `).run([now, message.profile_id]);
   
   return messageId;
 }
 
-// Function to create a new conversation
-export function createConversation(
+// Function to create a new profile
+export function createProfile(
   title: string | null,
   type: 'direct' | 'group',
   memberIds: string[],
   creatorId: string
 ) {
   const now = Date.now();
-  const conversationId = `conv_${now}`;
+  const profileId = `prof_${now}`;
   
   return transaction(() => {
-    // Create conversation
+    // Create profile
     db.prepare(`
-      INSERT INTO conversations (id, title, type, created_at, updated_at)
+      INSERT INTO profiles (id, title, type, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run([conversationId, title, type, now, now]);
+    `).run([profileId, title, type, now, now]);
     
     // Add members
     const addMember = db.prepare(`
-      INSERT INTO conversation_members (
-        id, conversation_id, user_id, is_admin, joined_at, last_read_at
+      INSERT INTO profile_members (
+        id, profile_id, user_id, is_admin, joined_at, last_read_at
       ) VALUES (?, ?, ?, ?, ?, ?)
     `);
     
@@ -161,7 +161,7 @@ export function createConversation(
       const memberId = `member_${now}_${userId}`;
       addMember.run([
         memberId,
-        conversationId,
+        profileId,
         userId,
         userId === creatorId ? 1 : 0, // Creator is admin
         now,
@@ -169,36 +169,36 @@ export function createConversation(
       ]);
     }
     
-    return conversationId;
+    return profileId;
   });
 }
 
 // Function to mark messages as read
-export function markConversationAsRead(conversationId: string, userId: string) {
+export function markProfileAsRead(profileId: string, userId: string) {
   return db.prepare(`
-    UPDATE conversation_members
+    UPDATE profile_members
     SET last_read_at = ?
-    WHERE conversation_id = ? AND user_id = ?
-  `).run([Date.now(), conversationId, userId]);
+    WHERE profile_id = ? AND user_id = ?
+  `).run([Date.now(), profileId, userId]);
 }
 
-// Function to update conversation title (for group chats)
-export function updateConversationTitle(conversationId: string, title: string) {
+// Function to update profile title (for group chats)
+export function updateProfileTitle(profileId: string, title: string) {
   return db.prepare(`
-    UPDATE conversations
+    UPDATE profiles
     SET title = ?
     WHERE id = ?
-  `).run([title, conversationId]);
+  `).run([title, profileId]);
 }
 
-// Function to add members to a conversation
-export function addConversationMembers(conversationId: string, userIds: string[]) {
+// Function to add members to a profile
+export function addProfileMembers(profileId: string, userIds: string[]) {
   const now = Date.now();
   
   return transaction(() => {
     const addMember = db.prepare(`
-      INSERT INTO conversation_members (
-        id, conversation_id, user_id, is_admin, joined_at, last_read_at
+      INSERT INTO profile_members (
+        id, profile_id, user_id, is_admin, joined_at, last_read_at
       ) VALUES (?, ?, ?, ?, ?, ?)
     `);
     
@@ -206,7 +206,7 @@ export function addConversationMembers(conversationId: string, userIds: string[]
       const memberId = `member_${now}_${userId}`;
       addMember.run([
         memberId,
-        conversationId,
+        profileId,
         userId,
         0, // Not admin
         now,
@@ -216,25 +216,25 @@ export function addConversationMembers(conversationId: string, userIds: string[]
   });
 }
 
-// Function to remove a member from a conversation
-export function removeConversationMember(conversationId: string, userId: string) {
+// Function to remove a member from a profile
+export function removeProfileMember(profileId: string, userId: string) {
   return db.prepare(`
-    DELETE FROM conversation_members
-    WHERE conversation_id = ? AND user_id = ?
-  `).run([conversationId, userId]);
+    DELETE FROM profile_members
+    WHERE profile_id = ? AND user_id = ?
+  `).run([profileId, userId]);
 }
 
-// Function to get conversation members
-export function getConversationMembers(conversationId: string) {
+// Function to get profile members
+export function getProfileMembers(profileId: string) {
   return db.prepare(`
     SELECT 
-      cm.*,
+      pm.*,
       u.name,
       u.email,
       u.photo_url
-    FROM conversation_members cm
-    JOIN users u ON cm.user_id = u.id
-    WHERE cm.conversation_id = ?
-    ORDER BY cm.is_admin DESC, cm.joined_at ASC
-  `).all([conversationId]);
+    FROM profile_members pm
+    JOIN users u ON pm.user_id = u.id
+    WHERE pm.profile_id = ?
+    ORDER BY pm.is_admin DESC, pm.joined_at ASC
+  `).all([profileId]);
 }

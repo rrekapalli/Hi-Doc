@@ -4,6 +4,14 @@ import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { signToken, verifyToken } from './jwtUtil.js';
 import { interpretMessage, aiProviderStatus, AiInterpretation, getHealthDataEntryPrompt, getHealthDataTrendPrompt, clearPromptCache } from './ai.js';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+// Fix __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Extend Express Request to include user
 interface Request extends ExpressRequest {
@@ -15,9 +23,48 @@ interface Request extends ExpressRequest {
 }
 import { logger } from './logger.js';
 import { verifyMicrosoftIdToken } from './msAuth.js';
+
+// Reports directory (project root ./reports). We only persist the filename in DB.
+const reportsDir = path.join(__dirname, '../../reports');
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (_req, _file, cb) {
+    if (!fs.existsSync(reportsDir)) {
+      fs.mkdirSync(reportsDir, { recursive: true });
+    }
+    cb(null, reportsDir);
+  },
+  filename: function (_req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'report-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    // Accept images, PDFs, and documents
+    const allowedExtensions = /\.(jpeg|jpg|png|pdf|doc|docx|txt|md)$/i;
+    const allowedMimeTypes = /^(image\/.*|application\/pdf|text\/.*|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|application\/octet-stream)$/;
+    
+    const extname = allowedExtensions.test(file.originalname);
+    const mimetype = allowedMimeTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error(`File type not allowed: ${file.originalname} (${file.mimetype})`));
+    }
+  }
+});
 interface DbMessage {
   id: string;
-  conversation_id: string;
+  profile_id: string;
   sender_id: string;
   user_id: string;
   role: 'user' | 'system' | 'assistant';
@@ -30,61 +77,91 @@ interface DbMessage {
 const router = Router();
 
 // Prototype mode: Skip authentication and use a hardcoded user ID
+let prototypeUserMigrationDone = false;
 router.use((req: Request, res: Response, next: NextFunction) => {
-  // Use a fixed prototype user ID and ensure it exists
-  const prototypeUserId = 'prototype-user-12345';
+  // Canonical prototype user ID (aligned with Flutter client)
+  const canonicalUserId = 'prototype-user';
+  const legacyUserId = 'prototype-user-12345';
   const defaultEmail = 'prototype@example.com';
-  
-  // Check if user exists, create if not
-  let user = db.prepare('SELECT * FROM users WHERE id = ?').get(prototypeUserId);
-  if (!user) {
-    logger.debug('Creating prototype user in middleware', { userId: prototypeUserId, email: defaultEmail });
-    try {
-      db.prepare('INSERT OR IGNORE INTO users (id, name, email, photo_url) VALUES (?, ?, ?, ?)').run(prototypeUserId, 'Prototype User', defaultEmail, null);
-      user = db.prepare('SELECT * FROM users WHERE id = ?').get(prototypeUserId);
-      logger.debug('Prototype user created in middleware', { user });
-    } catch (e) {
-      logger.error('Failed to create prototype user in middleware', { error: e });
+
+  try {
+    // Ensure canonical user exists
+    let user = db.prepare('SELECT * FROM users WHERE id = ?').get(canonicalUserId);
+    if (!user) {
+      db.prepare('INSERT OR IGNORE INTO users (id, name, email, photo_url) VALUES (?,?,?,?)')
+        .run(canonicalUserId, 'Prototype User', defaultEmail, null);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(canonicalUserId);
+      logger.debug('Canonical prototype user ensured', { user });
     }
+
+    // One-time migration from legacy user id
+    if (!prototypeUserMigrationDone) {
+      const legacyExists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(legacyUserId);
+      if (legacyExists) {
+        logger.info('Running prototype user ID migration from legacy to canonical');
+        const tx = db.transaction(() => {
+          // Insert canonical user if not present (already ensured above)
+          // Update referencing tables first by inserting canonical user (done) then updating foreign keys
+          const tablesWithUserId = [
+            'medications','messages','reports','health_data','reminders','activities','profile_members'
+          ];
+            for (const t of tablesWithUserId) {
+              try {
+                db.prepare(`UPDATE ${t} SET user_id = ? WHERE user_id = ?`).run(canonicalUserId, legacyUserId);
+              } catch (e) {
+                logger.warn('Migration: failed updating table', { table: t, error: e });
+              }
+            }
+          // sender_id also references user (messages)
+          try { db.prepare('UPDATE messages SET sender_id = ? WHERE sender_id = ?').run(canonicalUserId, legacyUserId); } catch {}
+          // Finally remove legacy user row (only if no refs remain)
+          try { db.prepare('DELETE FROM users WHERE id = ?').run(legacyUserId); } catch {}
+        });
+        tx();
+        logger.info('Prototype user ID migration complete');
+      }
+      prototypeUserMigrationDone = true;
+    }
+
+    // Attach user to request
+    (req as any).userId = canonicalUserId;
+    (req as any).user = { id: canonicalUserId, name: 'Prototype User', email: defaultEmail };
+  } catch (e) {
+    logger.error('Error in prototype user middleware', { error: e });
   }
-  
-  // Set both userId and user.id to support both patterns
-  (req as any).userId = prototypeUserId;
-  (req as any).user = { id: prototypeUserId, name: 'Prototype User', email: defaultEmail };
-  logger.debug('Using hardcoded prototype user', { userId: prototypeUserId, path: req.path });
   next();
 });
 
 // Import conversation-related functions
 import {
-  getConversations,
+  getProfiles,
   getMessages,
   sendMessage,
-  createConversation,
-  markConversationAsRead,
-  updateConversationTitle,
-  addConversationMembers,
-  removeConversationMember,
-  getConversationMembers,
-} from './conversations.js';
+  createProfile,
+  markProfileAsRead,
+  updateProfileTitle,
+  addProfileMembers,
+  removeProfileMember,
+  getProfileMembers,
+} from './profiles.js';
 
 // Conversation routes
-router.get('/api/conversations', async (req: Request, res: Response) => {
+router.get('/api/profiles', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const conversations = await getConversations(userId);
-    res.json(conversations);
+  const profiles = await getProfiles(userId);
+  res.json(profiles);
   } catch (error) {
-    logger.error('Error getting conversations:', error);
+  logger.error('Error getting profiles:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-router.get('/api/conversations/:id/messages', async (req: Request, res: Response) => {
+router.get('/api/profiles/:id/messages', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
@@ -106,7 +183,7 @@ router.get('/api/conversations/:id/messages', async (req: Request, res: Response
   }
 });
 
-router.post('/api/conversations/:id/messages', async (req: Request, res: Response) => {
+router.post('/api/profiles/:id/messages', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
@@ -120,7 +197,7 @@ router.post('/api/conversations/:id/messages', async (req: Request, res: Respons
     }
 
     const messageId = await sendMessage({
-      conversation_id: id,
+  profile_id: id,
       sender_id: userId,
       role: 'user',
       content,
@@ -135,7 +212,7 @@ router.post('/api/conversations/:id/messages', async (req: Request, res: Respons
   }
 });
 
-router.post('/api/conversations', async (req: Request, res: Response) => {
+router.post('/api/profiles', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -150,21 +227,21 @@ router.post('/api/conversations', async (req: Request, res: Response) => {
     // Always include the creator in the members list
     const uniqueMemberIds = Array.from(new Set([...memberIds, userId]));
 
-    const conversationId = await createConversation(
+  const profileId = await createProfile(
       title,
       type,
       uniqueMemberIds,
       userId
     );
 
-    res.json({ id: conversationId });
+  res.json({ id: profileId });
   } catch (error) {
     logger.error('Error creating conversation:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-router.post('/api/conversations/:id/read', async (req: Request, res: Response) => {
+router.post('/api/profiles/:id/read', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
@@ -172,7 +249,7 @@ router.post('/api/conversations/:id/read', async (req: Request, res: Response) =
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    await markConversationAsRead(id, userId);
+  await markProfileAsRead(id, userId);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error marking conversation as read:', error);
@@ -180,7 +257,7 @@ router.post('/api/conversations/:id/read', async (req: Request, res: Response) =
   }
 });
 
-router.put('/api/conversations/:id/title', async (req: Request, res: Response) => {
+router.put('/api/profiles/:id/title', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { title } = req.body;
@@ -188,7 +265,7 @@ router.put('/api/conversations/:id/title', async (req: Request, res: Response) =
       return res.status(400).json({ error: 'Title is required' });
     }
 
-    await updateConversationTitle(id, title);
+  await updateProfileTitle(id, title);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error updating conversation title:', error);
@@ -196,7 +273,7 @@ router.put('/api/conversations/:id/title', async (req: Request, res: Response) =
   }
 });
 
-router.post('/api/conversations/:id/members', async (req: Request, res: Response) => {
+router.post('/api/profiles/:id/members', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { userIds } = req.body;
@@ -204,7 +281,7 @@ router.post('/api/conversations/:id/members', async (req: Request, res: Response
       return res.status(400).json({ error: 'User IDs array is required' });
     }
 
-    await addConversationMembers(id, userIds);
+  await addProfileMembers(id, userIds);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error adding conversation members:', error);
@@ -212,10 +289,10 @@ router.post('/api/conversations/:id/members', async (req: Request, res: Response
   }
 });
 
-router.delete('/api/conversations/:id/members/:userId', async (req: Request, res: Response) => {
+router.delete('/api/profiles/:id/members/:userId', async (req: Request, res: Response) => {
   try {
     const { id, userId } = req.params;
-    await removeConversationMember(id, userId);
+  await removeProfileMember(id, userId);
     res.json({ success: true });
   } catch (error) {
     logger.error('Error removing conversation member:', error);
@@ -223,10 +300,10 @@ router.delete('/api/conversations/:id/members/:userId', async (req: Request, res
   }
 });
 
-router.get('/api/conversations/:id/members', async (req: Request, res: Response) => {
+router.get('/api/profiles/:id/members', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const members = await getConversationMembers(id);
+  const members = await getProfileMembers(id);
     res.json(members);
   } catch (error) {
     logger.error('Error getting conversation members:', error);
@@ -234,7 +311,7 @@ router.get('/api/conversations/:id/members', async (req: Request, res: Response)
   }
 });
 
-// Search users endpoint for creating new conversations
+// Search users endpoint for creating new profiles (chat entities)
 router.get('/api/users/search', async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
@@ -273,6 +350,298 @@ router.get('/api/users/search', async (req: Request, res: Response) => {
     res.json(users);
   } catch (error) {
     logger.error('Error searching users:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// -------------------------------
+// Medications & Schedules API
+// -------------------------------
+
+// List medications for a profile
+router.get('/api/medications', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const profileId = (req.query.profile_id as string) || (req.query.profileId as string);
+    if (!userId || !profileId) return res.status(400).json({ error: 'profile_id required' });
+    let rows = db.prepare(`SELECT * FROM medications WHERE user_id = ? AND profile_id = ? ORDER BY name ASC`).all(userId, profileId);
+    if (rows.length == 0) {
+      // Fallback: check legacy user id rows and migrate on the fly
+      const legacyUserId = 'prototype-user-12345';
+      const legacyRows = db.prepare(`SELECT * FROM medications WHERE user_id = ? AND profile_id = ? ORDER BY name ASC`).all(legacyUserId, profileId);
+      if (legacyRows.length > 0) {
+        logger.warn('Migrating legacy medication rows to canonical user id', { count: legacyRows.length, profileId });
+        const tx = db.transaction(() => {
+          db.prepare('UPDATE medications SET user_id = ? WHERE user_id = ?').run(userId, legacyUserId);
+        });
+        try { tx(); } catch (e) { logger.error('Legacy medication migration failed', { error: e }); }
+        rows = db.prepare(`SELECT * FROM medications WHERE user_id = ? AND profile_id = ? ORDER BY name ASC`).all(userId, profileId);
+      }
+    }
+    res.json(rows);
+  } catch (e) {
+    logger.error('Error listing medications', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create medication
+router.post('/api/medications', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { profileId, name, notes, medicationUrl } = req.body;
+    if (!userId || !profileId || !name) return res.status(400).json({ error: 'profileId and name required' });
+    // Ensure normalized schema columns exist (executed once then cached)
+    try {
+      const globalAny: any = globalThis as any;
+      if (!globalAny.__medicationsSchemaChecked) {
+        const cols = db.prepare('PRAGMA table_info(medications)').all() as any[];
+        const colNames = new Set(cols.map(c => c.name as string));
+        const desired: Record<string,string> = {
+          notes: 'TEXT',
+          medication_url: 'TEXT',
+          created_at: 'INTEGER',
+          updated_at: 'INTEGER',
+        };
+        const missing = Object.keys(desired).filter(c => !colNames.has(c));
+        if (missing.length > 0) {
+          logger.warn('Medications table missing columns; applying in-place migration', { missing });
+          const tx = db.transaction(() => {
+            for (const m of missing) {
+              const type = desired[m];
+              try { db.prepare(`ALTER TABLE medications ADD COLUMN ${m} ${type}`).run(); }
+              catch (e) { logger.error('Failed to add medications column', { column: m, error: e }); }
+            }
+            const now = Date.now();
+            if (missing.includes('created_at')) { db.prepare('UPDATE medications SET created_at = ? WHERE created_at IS NULL').run(now); }
+            if (missing.includes('updated_at')) { db.prepare('UPDATE medications SET updated_at = ? WHERE updated_at IS NULL').run(now); }
+          });
+          tx();
+        }
+        globalAny.__medicationsSchemaChecked = true;
+      }
+    } catch (e) { logger.error('Medication schema self-check failed (non-fatal)', { error: e }); }
+    const id = randomUUID();
+    const now = Date.now();
+    db.prepare(`INSERT INTO medications (id,user_id,profile_id,name,notes,medication_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`)
+      .run(id, userId, profileId, name, notes || null, medicationUrl || null, now, now);
+    res.json({ id });
+  } catch (e) {
+    const err: any = e;
+    logger.error('Error creating medication', { message: err?.message, error: err, stack: err?.stack });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get medication detail with schedules + times
+router.get('/api/medications/:id', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const med = db.prepare('SELECT * FROM medications WHERE id = ? AND user_id = ?').get(id, userId);
+    if (!med) return res.status(404).json({ error: 'Not found' });
+    const schedules = db.prepare('SELECT * FROM medication_schedules WHERE medication_id = ? ORDER BY start_date ASC').all(id);
+    const schedulesWithTimes = schedules.map((s: any) => {
+      const times = db.prepare('SELECT * FROM medication_schedule_times WHERE schedule_id = ? ORDER BY sort_order ASC, time_local ASC').all(s.id);
+      return { ...s, times };
+    });
+    res.json({ ...med, schedules: schedulesWithTimes });
+  } catch (e) {
+    logger.error('Error getting medication detail', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update medication
+router.put('/api/medications/:id', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+    const { name, notes, medicationUrl } = req.body;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const now = Date.now();
+    const stmt = db.prepare('UPDATE medications SET name = COALESCE(?, name), notes = COALESCE(?, notes), medication_url = COALESCE(?, medication_url), updated_at = ? WHERE id = ? AND user_id = ?');
+    const info = stmt.run(name || null, notes || null, medicationUrl || null, now, id, userId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error updating medication', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete medication (cascade removes schedules/times via FK)
+router.delete('/api/medications/:id', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const info = db.prepare('DELETE FROM medications WHERE id = ? AND user_id = ?').run(id, userId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error deleting medication', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create schedule for medication
+router.post('/api/medications/:id/schedules', (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id; const { id } = req.params;
+    const med = db.prepare('SELECT id FROM medications WHERE id = ? AND user_id = ?').get(id, userId);
+    if (!med) return res.status(404).json({ error: 'Medication not found' });
+    const { schedule, frequencyPerDay, isForever, startDate, endDate, daysOfWeek, timezone, reminderEnabled = true } = req.body;
+    if (!schedule) return res.status(400).json({ error: 'schedule required' });
+    const schedId = randomUUID();
+    db.prepare(`INSERT INTO medication_schedules (id, medication_id, schedule, frequency_per_day, is_forever, start_date, end_date, days_of_week, timezone, reminder_enabled)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run(schedId, id, schedule, frequencyPerDay ?? null, isForever ? 1 : 0, startDate ?? null, endDate ?? null, daysOfWeek ?? null, timezone ?? null, reminderEnabled ? 1 : 0);
+    res.json({ id: schedId });
+  } catch (e) {
+    logger.error('Error creating schedule', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update schedule
+router.put('/api/schedules/:scheduleId', (req: Request, res: Response) => {
+  try {
+    const { scheduleId } = req.params;
+    const { schedule, frequencyPerDay, isForever, startDate, endDate, daysOfWeek, timezone, reminderEnabled } = req.body;
+    const stmt = db.prepare(`UPDATE medication_schedules SET 
+      schedule = COALESCE(?, schedule),
+      frequency_per_day = COALESCE(?, frequency_per_day),
+      is_forever = COALESCE(?, is_forever),
+      start_date = COALESCE(?, start_date),
+      end_date = COALESCE(?, end_date),
+      days_of_week = COALESCE(?, days_of_week),
+      timezone = COALESCE(?, timezone),
+      reminder_enabled = COALESCE(?, reminder_enabled)
+      WHERE id = ?`);
+    const info = stmt.run(schedule ?? null, frequencyPerDay ?? null, typeof isForever === 'boolean' ? (isForever ? 1 : 0) : null, startDate ?? null, endDate ?? null, daysOfWeek ?? null, timezone ?? null, typeof reminderEnabled === 'boolean' ? (reminderEnabled ? 1 : 0) : null, scheduleId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error updating schedule', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete schedule (cascade times via FK)
+router.delete('/api/schedules/:scheduleId', (req: Request, res: Response) => {
+  try {
+    const { scheduleId } = req.params;
+    const info = db.prepare('DELETE FROM medication_schedules WHERE id = ?').run(scheduleId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error deleting schedule', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create schedule time
+router.post('/api/schedules/:scheduleId/times', (req: Request, res: Response) => {
+  try {
+    const { scheduleId } = req.params;
+    const sched = db.prepare('SELECT id FROM medication_schedules WHERE id = ?').get(scheduleId);
+    if (!sched) return res.status(404).json({ error: 'Schedule not found' });
+    const { timeLocal, dosage, doseAmount, doseUnit, instructions, prn = false, sortOrder } = req.body;
+    if (!timeLocal) return res.status(400).json({ error: 'timeLocal required' });
+    const id = randomUUID();
+    db.prepare(`INSERT INTO medication_schedule_times (id, schedule_id, time_local, dosage, dose_amount, dose_unit, instructions, prn, sort_order)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run(id, scheduleId, timeLocal, dosage ?? null, doseAmount ?? null, doseUnit ?? null, instructions ?? null, prn ? 1 : 0, sortOrder ?? null);
+    res.json({ id });
+  } catch (e) {
+    logger.error('Error creating schedule time', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update schedule time
+router.put('/api/schedule-times/:timeId', (req: Request, res: Response) => {
+  try {
+    const { timeId } = req.params;
+    const { timeLocal, dosage, doseAmount, doseUnit, instructions, prn, sortOrder, nextTriggerTs } = req.body;
+    const stmt = db.prepare(`UPDATE medication_schedule_times SET 
+      time_local = COALESCE(?, time_local),
+      dosage = COALESCE(?, dosage),
+      dose_amount = COALESCE(?, dose_amount),
+      dose_unit = COALESCE(?, dose_unit),
+      instructions = COALESCE(?, instructions),
+      prn = COALESCE(?, prn),
+      sort_order = COALESCE(?, sort_order),
+      next_trigger_ts = COALESCE(?, next_trigger_ts)
+      WHERE id = ?`);
+    const info = stmt.run(timeLocal ?? null, dosage ?? null, doseAmount ?? null, doseUnit ?? null, instructions ?? null, typeof prn === 'boolean' ? (prn ? 1 : 0) : null, sortOrder ?? null, nextTriggerTs ?? null, timeId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error updating schedule time', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete schedule time
+router.delete('/api/schedule-times/:timeId', (req: Request, res: Response) => {
+  try {
+    const { timeId } = req.params;
+    const info = db.prepare('DELETE FROM medication_schedule_times WHERE id = ?').run(timeId);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error('Error deleting schedule time', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// List schedule times for a schedule
+router.get('/api/schedules/:scheduleId/times', (req: Request, res: Response) => {
+  try {
+    const { scheduleId } = req.params;
+    const sched = db.prepare('SELECT id FROM medication_schedules WHERE id = ?').get(scheduleId);
+    if (!sched) return res.status(404).json({ error: 'Schedule not found' });
+    const rows = db.prepare('SELECT * FROM medication_schedule_times WHERE schedule_id = ? ORDER BY sort_order ASC, time_local ASC').all(scheduleId);
+    res.json(rows);
+  } catch (e) {
+    logger.error('Error listing schedule times', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create intake log
+router.post('/api/schedule-times/:timeId/intake-logs', (req: Request, res: Response) => {
+  try {
+    const { timeId } = req.params; const { status, actualDoseAmount, actualDoseUnit, notes } = req.body;
+    if (!status) return res.status(400).json({ error: 'status required' });
+    const exists = db.prepare('SELECT id FROM medication_schedule_times WHERE id = ?').get(timeId);
+    if (!exists) return res.status(404).json({ error: 'Schedule time not found' });
+    const id = randomUUID();
+    const takenTs = Date.now();
+    db.prepare(`INSERT INTO medication_intake_logs (id, schedule_time_id, taken_ts, status, actual_dose_amount, actual_dose_unit, notes)
+      VALUES (?,?,?,?,?,?,?)`).run(id, timeId, takenTs, status, actualDoseAmount ?? null, actualDoseUnit ?? null, notes ?? null);
+    res.json({ id, takenTs });
+  } catch (e) {
+    logger.error('Error creating intake log', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// List intake logs for medication
+router.get('/api/medications/:id/intake-logs', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params; const from = req.query.from ? parseInt(req.query.from as string) : undefined; const to = req.query.to ? parseInt(req.query.to as string) : undefined;
+    const where: string[] = ['ms.medication_id = ?']; const args:any[] = [id];
+    if (from) { where.push('mil.taken_ts >= ?'); args.push(from); }
+    if (to) { where.push('mil.taken_ts <= ?'); args.push(to); }
+    const rows = db.prepare(`SELECT mil.* FROM medication_intake_logs mil
+      JOIN medication_schedule_times mst ON mil.schedule_time_id = mst.id
+      JOIN medication_schedules ms ON mst.schedule_id = ms.id
+      WHERE ${where.join(' AND ')} ORDER BY mil.taken_ts DESC`).all(...args);
+    res.json(rows);
+  } catch (e) {
+    logger.error('Error listing intake logs', e);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -319,6 +688,22 @@ const runtimeDebug: { db:boolean; ai:boolean } = {
   db: process.env.DEBUG_DB === '1',
   ai: process.env.DEBUG_AI === '1',
 };
+// Simplified: canonical messages schema only (profile_id, no conversation_id)
+function insertMessageRecord({ id, profileId, userId, role, content, createdAt, processed = 0 }: { id:string; profileId:string; userId:string; role:string; content:string; createdAt:number; processed?:number; }) {
+  try {
+    db.prepare('INSERT INTO messages (id, profile_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,?)')
+      .run(id, profileId, userId, role, content, createdAt, processed);
+  } catch (e) {
+    const err: any = e;
+    logger.error('Error inserting message', { message: err?.message, error: err, stack: err?.stack });
+    try {
+      const existingProfile = db.prepare('SELECT id FROM profiles WHERE id = ?').get(profileId);
+      const existingUser = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+      logger.error('Foreign key failure inserting message', { profileId, userId, hasProfile: !!existingProfile, hasUser: !!existingUser });
+    } catch {}
+    throw err;
+  }
+}
 
 // Instrument sqlite wrapper lazily (only once)
 const _origPrepare = (db as any).prepare.bind(db);
@@ -361,8 +746,6 @@ router.post('/api/debug/flags', (req, res)=> {
   res.json(runtimeDebug);
 });
 
-// --- Simple in-memory vector search over param_targets (bag-of-words cosine) ---
-// This avoids external dependencies while enabling approximate semantic mapping of a user message
 // to the closest health parameter(s) defined in param_targets.
 interface ParamTargetRow { param_code: string; target_min?: number|null; target_max?: number|null; preferred_unit?: string|null; description?: string|null; notes?: string|null; organ_system?: string|null; }
 
@@ -411,25 +794,43 @@ function cosine(a: Map<string, number>, b: Map<string, number>): number {
 }
 
 function matchParamTargets(message: string, limit = 5) {
-  const stmt = db.prepare('SELECT param_code, target_min, target_max, preferred_unit, description, notes, organ_system FROM param_targets');
-  const rows = (stmt.all() as unknown) as ParamTargetRow[];
-  if (!Array.isArray(rows)) {
-    return [];
+  // Build or reuse cached vectors for param_targets to avoid O(N) tokenization every request
+  const globalAny: any = globalThis as any;
+  if (!globalAny.__paramTargetVecCache) {
+    const stmt = db.prepare('SELECT param_code, target_min, target_max, preferred_unit, description, notes, organ_system FROM param_targets');
+    const rows = (stmt.all() as unknown) as ParamTargetRow[];
+    const cache: any[] = [];
+    for (const r of rows) {
+      const text = [r.param_code, r.description, r.notes, r.organ_system].filter(Boolean).join(' ');
+      cache.push({ row: r, vec: buildVector(tokenize(text)) });
+    }
+    globalAny.__paramTargetVecCache = { ts: Date.now(), items: cache, count: cache.length };
+  } else if (Date.now() - globalAny.__paramTargetVecCache.ts > 5 * 60 * 1000) { // Refresh every 5 minutes
+    try {
+      const stmt = db.prepare('SELECT param_code, target_min, target_max, preferred_unit, description, notes, organ_system FROM param_targets');
+      const rows = (stmt.all() as unknown) as ParamTargetRow[];
+      const cache: any[] = [];
+      for (const r of rows) {
+        const text = [r.param_code, r.description, r.notes, r.organ_system].filter(Boolean).join(' ');
+        cache.push({ row: r, vec: buildVector(tokenize(text)) });
+      }
+      globalAny.__paramTargetVecCache = { ts: Date.now(), items: cache, count: cache.length };
+    } catch {}
   }
+  const cacheItems = globalAny.__paramTargetVecCache.items as { row: ParamTargetRow; vec: Map<string, number>; }[];
   const msgVec = buildVector(tokenize(message));
-  const scored = rows.map(r => {
-    const text = [r.param_code, r.description, r.notes, r.organ_system].filter(Boolean).join(' ');
-    const vec = buildVector(tokenize(text));
-    return { row: r, score: cosine(msgVec, vec) };
-  }).filter(s => s.score > 0).sort((a,b)=> b.score - a.score).slice(0, limit);
+  const scored = cacheItems.map(ci => ({ row: ci.row, score: cosine(msgVec, ci.vec) }))
+    .filter(s => s.score > 0)
+    .sort((a,b)=> b.score - a.score)
+    .slice(0, limit);
   return scored.map(s => ({
-    param_code: s.row.param_code,
-    score: Number(s.score.toFixed(4)),
-    target_min: s.row.target_min,
-    target_max: s.row.target_max,
-    preferred_unit: s.row.preferred_unit,
-    description: s.row.description,
-  }));
+      param_code: s.row.param_code,
+      score: Number(s.score.toFixed(4)),
+      target_min: s.row.target_min,
+      target_max: s.row.target_max,
+      preferred_unit: s.row.preferred_unit,
+      description: s.row.description,
+    }));
 }
 
 // Utility
@@ -446,16 +847,16 @@ router.post('/api/auth/microsoft/exchange', async (req: Request, res: Response) 
   const { id_token: idToken } = req.body || {};
   if (!idToken) { logger.warn('Microsoft exchange missing id_token'); return res.status(400).json({ error: 'id_token required' }); }
   try {
-  const payload = await verifyMicrosoftIdToken(idToken);
-  const email = payload.email || payload.preferred_username;
-  if (!email) { logger.warn('Microsoft exchange email claim missing'); return res.status(400).json({ error: 'email claim missing' }); }
-  const user: any = upsertUser(email, payload.name, (payload as any).picture);
-  const jwt = await signToken({ uid: user.id, email });
-  logger.info('Microsoft auth success', { userId: user.id, email });
-  res.json({ token: jwt, user });
+    const payload: any = await verifyMicrosoftIdToken(idToken);
+    if (!payload || !payload.sub) { logger.warn('Microsoft verify missing sub'); return res.status(400).json({ error: 'invalid token' }); }
+    const email = payload.email || payload.preferred_username || `${payload.sub}@microsoft`;
+    const user: any = upsertUser(email, payload.name, payload.picture);
+    const jwt = await signToken({ uid: user.id, email });
+    logger.info('Microsoft auth success', { userId: user.id, email });
+    res.json({ token: jwt, user });
   } catch (e: any) {
-  logger.warn('Microsoft auth verification failed', { error: e.message });
-  res.status(400).json({ error: 'verification failed', detail: e.message });
+    logger.warn('Microsoft auth verification failed', { error: e.message });
+    res.status(400).json({ error: 'verification failed', detail: e.message });
   }
 });
 
@@ -510,7 +911,9 @@ router.post('/api/ai/reload-prompts', (_req: Request, res: Response) => {
   }
 });
 
-// Simple regex-based health message parser as fallback
+// --- Simple in-memory vector search over param_targets (bag-of-words cosine) ---
+// This avoids external dependencies while enabling approximate semantic mapping of a user message
+// to the closest health parameter(s) defined in param_targets.
 function parseSimpleHealthMessage(message: string, userId: string = 'prototype-user-12345'): any | null {
   const lower = message.toLowerCase().trim();
   
@@ -584,8 +987,7 @@ router.post('/api/ai/process-with-prompt', async (req: Request, res: Response) =
     const userMessageId = randomUUID();
     const createdAt = Date.now();
     
-    db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,0)')
-      .run(userMessageId, 'me-conversation', userId, 'user', String(message), createdAt);
+  insertMessageRecord({ id: userMessageId, profileId: 'me-conversation', userId, role: 'user', content: String(message), createdAt, processed: 0 });
     
     logger.debug('Saved user message to messages table', { messageId: userMessageId });
     
@@ -731,8 +1133,7 @@ router.post('/api/ai/process-with-prompt', async (req: Request, res: Response) =
       const aiMessageId = randomUUID();
       const aiResponse = reply || 'Health data processed';
       
-      db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,1)')
-        .run(aiMessageId, 'me-conversation', userId, 'assistant', aiResponse, Date.now());
+  insertMessageRecord({ id: aiMessageId, profileId: 'me-profile', userId, role: 'assistant', content: aiResponse, createdAt: Date.now(), processed: 1 });
       
       // Step 3: Update user message as processed and link to health data if extracted
       const interpretation = {
@@ -870,10 +1271,10 @@ router.post('/api/ai/process-with-prompt', async (req: Request, res: Response) =
 
 // New endpoint: Save health data entry
 router.post('/api/health-data', (req: Request, res: Response) => {
-  const { id, user_id, conversation_id, type, category, value, quantity, unit, timestamp, notes } = req.body || {};
+  const { id, user_id, profile_id, type, category, value, quantity, unit, timestamp, notes } = req.body || {};
   
-  if (!id || !user_id || !conversation_id || !type || !timestamp) {
-    return res.status(400).json({ error: 'id, user_id, conversation_id, type, and timestamp are required' });
+  if (!id || !user_id || !profile_id || !type || !timestamp) {
+    return res.status(400).json({ error: 'id, user_id, profile_id, type, and timestamp are required' });
   }
   
   try {
@@ -883,12 +1284,12 @@ router.post('/api/health-data', (req: Request, res: Response) => {
     
     if (hasQuantity) {
       db.prepare(`
-        INSERT INTO health_data (id, user_id, conversation_id, type, category, value, quantity, unit, timestamp, notes) 
+  INSERT INTO health_data (id, user_id, profile_id, type, category, value, quantity, unit, timestamp, notes) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         user_id,
-        conversation_id,
+  profile_id,
         type,
         category || 'HEALTH_PARAMS',
         value || null,
@@ -900,12 +1301,12 @@ router.post('/api/health-data', (req: Request, res: Response) => {
     } else {
       // Fallback for tables without quantity column
       db.prepare(`
-        INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) 
+  INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         user_id,
-        conversation_id,
+  profile_id,
         type,
         category || 'HEALTH_PARAMS',
         value || null,
@@ -991,20 +1392,67 @@ router.post('/api/health-data/trend', (req: Request, res: Response) => {
   }
 });
 
+// List distinct health data types for current user (category filter optional)
+router.get('/api/health-data/types', (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id || (req as any).userId;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const category = (req.query.category as string) || 'HEALTH_PARAMS';
+    const qRaw = (req.query.q as string) || '';
+    const limit = Math.min(parseInt((req.query.limit as string) || '50') || 50, 200);
+    let rows: any[];
+    if (qRaw) {
+      const q = `%${qRaw.toLowerCase()}%`;
+      rows = db.prepare(`SELECT DISTINCT type FROM health_data WHERE user_id = ? AND (? IS NULL OR category = ?) AND LOWER(type) LIKE ? ORDER BY type ASC LIMIT ?`)
+        .all(userId, category, category, q, limit) as any[];
+    } else {
+      rows = db.prepare(`SELECT DISTINCT type FROM health_data WHERE user_id = ? AND (? IS NULL OR category = ?) ORDER BY type ASC LIMIT ?`)
+        .all(userId, category, category, limit) as any[];
+    }
+    res.json(rows.map(r => r.type));
+  } catch (e: any) {
+    logger.error('health-data/types failed', { error: e.message });
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+// Time-series for a given type within range
+router.get('/api/health-data/series', (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id || (req as any).userId;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const type = req.query.type as string | undefined;
+    if (!type) return res.status(400).json({ error: 'type required' });
+    const fromMs = Number(req.query.from) || 0;
+    const toMs = Number(req.query.to) || Date.now();
+    let rows = db.prepare('SELECT timestamp, value, unit FROM health_data WHERE user_id = ? AND type = ? AND timestamp BETWEEN ? AND ? ORDER BY timestamp ASC')
+      .all(userId, type, fromMs, toMs) as any[];
+    // Fallback alias: some older entries may have used 'glucose' vs 'GLU_FAST'
+    if (!rows.length && type === 'GLU_FAST') {
+      rows = db.prepare("SELECT timestamp, value, unit FROM health_data WHERE user_id = ? AND type IN ('GLU_FAST','glucose') AND timestamp BETWEEN ? AND ? ORDER BY timestamp ASC")
+        .all(userId, fromMs, toMs) as any[];
+    }
+    const cleaned = rows.map(r => ({ timestamp: r.timestamp, value: r.value, unit: r.unit }));
+    res.json(cleaned);
+  } catch (e:any) {
+    logger.error('health-data/series failed', { error: e.message });
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
 // AI interpret + persist (requires auth). This does not change existing provisional local insert logic on the client;
 // it offers a backend mapping path so the AI output becomes a stored row.
 router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
-  const { message } = req.body || {};
+  const { message, profile_id } = req.body || {};
   if (!message) { logger.warn('Interpret-store missing message'); return res.status(400).json({ error: 'message required' }); }
   const userId = (req as any).user?.id || (req as any).userId;
   logger.debug('Interpret-store userId check', { userId, hasUserId: !!userId, type: typeof userId });
 
-  
+  const profileId = profile_id || 'default-profile';
   // Store raw message first
   const msgId = randomUUID();
   const createdAt = Date.now();
-  db.prepare('INSERT INTO messages (id, conversation_id, sender_id, role, content, created_at, processed) VALUES (?,?,?,?,?,?,0)')
-    .run(msgId, 'default-conversation', userId, 'user', String(message), createdAt);
+  insertMessageRecord({ id: msgId, profileId, userId, role: 'user', content: String(message), createdAt, processed: 0 });
   const interpretation = await interpretMessage(String(message));
   const matches = matchParamTargets(String(message), 5);
   if (runtimeDebug.ai) logger.debug('ai.interpretStore.res', { parsed: interpretation.parsed, entry: interpretation.entry, matches });
@@ -1015,7 +1463,7 @@ router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
     return res.status(200).json({ interpretation, stored: null, messageId: msgId, matches });
   }
   try {
-    const stored = persistAiEntry(interpretation.entry, userId, 'default-conversation');
+  const stored = persistAiEntry(interpretation.entry, userId, profileId);
     db.prepare('UPDATE messages SET interpretation_json = ?, processed = 1, stored_record_id = ? WHERE id = ?')
       .run(JSON.stringify(interpretation), stored.id, msgId);
     logger.info('Persisted AI entry', { reqId: (req as any).reqId, storedType: stored.type || stored.name, id: stored.id });
@@ -1029,9 +1477,17 @@ router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
 });
 
 // Helper to map AI entry -> DB rows.
-function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: string, conversationId: string) {
+function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: string, profileId: string) {
   const id = randomUUID();
-  const ts = entry.timestamp ?? Date.now();
+  // Normalize timestamp to milliseconds (AI may occasionally supply seconds epoch)
+  let ts = entry.timestamp ?? Date.now();
+  if (ts < 1e12) ts = ts * 1000;
+  // Safety clamp: if timestamp is >3 days in future or >400 days in past for entries without explicit date flag, reset to now.
+  const now = Date.now();
+  const ageDays = (now - ts) / 86400000;
+  if (ageDays > 400 || ts - now > 3 * 86400000) {
+    ts = now;
+  }
   const category = entry.category || 'HEALTH_PARAMS';
   
   switch (entry.type) {
@@ -1063,8 +1519,8 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
       }
       
       logger.debug('DB insert health_data vital', { vt, value, unit, category, ts });
-      db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(id, userId, conversationId, vt, category, value, unit, ts, null);
+      db.prepare('INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, profileId, vt, category, value, unit, ts, null);
       return { table: 'health_data', id, type: vt, category, value, unit, timestamp: ts };
     }
     case 'param': {
@@ -1074,16 +1530,16 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
       const unit = p.unit || null;
       const notes = p.notes || null;
       logger.debug('DB insert param as health_data', { code: p.param_code, value, unit, category, ts });
-      db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(id, userId, conversationId, p.param_code, category, value, unit, ts, notes);
+      db.prepare('INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, profileId, p.param_code, category, value, unit, ts, notes);
       return { table: 'health_data', id, type: p.param_code, category, value, unit, notes, timestamp: ts };
     }
     case 'note': {
       const noteId = id;
       const noteText = entry.note || '';
       logger.debug('DB insert note', { category, ts });
-      db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(noteId, userId, conversationId, 'note', category, null, null, ts, noteText);
+      db.prepare('INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(noteId, userId, profileId, 'note', category, null, null, ts, noteText);
       return { table: 'health_data', id: noteId, type: 'note', category, notes: noteText, timestamp: ts };
     }
     case 'medication': {
@@ -1095,9 +1551,9 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
       const dosage = dosageParts.join(' '); // e.g., "500 mg"
       let schedule: string | null = null;
       if (m.frequencyPerDay) schedule = `${m.frequencyPerDay}x/day`;
-      logger.debug('DB insert medication', { name: m.name, dosage, schedule, duration: m.durationDays, conversationId });
-      db.prepare('INSERT INTO medications (id, user_id, conversation_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(id, userId, conversationId, m.name, dosage || null, schedule, m.durationDays ?? null, 0, ts);
+      logger.debug('DB insert medication', { name: m.name, dosage, schedule, duration: m.durationDays, profileId });
+      db.prepare('INSERT INTO medications (id, user_id, profile_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, profileId, m.name, dosage || null, schedule, m.durationDays ?? null, 0, ts);
       return { table: 'medications', id, name: m.name, dosage: dosage || null, schedule, durationDays: m.durationDays ?? null, startDate: ts };
     }
     case 'labResult': {
@@ -1112,9 +1568,9 @@ function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: s
     case 'activity': {
       if (!entry.activity || !entry.activity.name) throw new Error('activity.name missing');
       const a = entry.activity;
-      logger.debug('DB insert activity', { name: a.name, distance: a.distance_km, duration: a.duration_minutes, intensity: a.intensity, conversationId });
-      db.prepare('INSERT INTO activities (id, user_id, conversation_id, name, duration_minutes, distance_km, intensity, calories_burned, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?,?)')
-        .run(id, userId, conversationId, a.name, a.duration_minutes ?? null, a.distance_km ?? null, a.intensity ?? null, a.calories_burned ?? null, ts, a.notes ?? null);
+      logger.debug('DB insert activity', { name: a.name, distance: a.distance_km, duration: a.duration_minutes, intensity: a.intensity, profileId });
+      db.prepare('INSERT INTO activities (id, user_id, profile_id, name, duration_minutes, distance_km, intensity, calories_burned, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(id, userId, profileId, a.name, a.duration_minutes ?? null, a.distance_km ?? null, a.intensity ?? null, a.calories_burned ?? null, ts, a.notes ?? null);
       return { table: 'activities', id, name: a.name, duration_minutes: a.duration_minutes ?? null, distance_km: a.distance_km ?? null, intensity: a.intensity ?? null, calories_burned: a.calories_burned ?? null, timestamp: ts, notes: a.notes ?? null };
     }
     default:
@@ -1130,7 +1586,7 @@ const healthDataSchema = z.object({
   unit: z.string().optional(),
   timestamp: z.number().int().optional(),
   notes: z.string().optional(),
-  conversation_id: z.string().optional(),
+  profile_id: z.string().optional(),
 });
 
 router.post('/api/health', (req: Request, res: Response) => {
@@ -1138,13 +1594,15 @@ router.post('/api/health', (req: Request, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const id = randomUUID();
   const userId = (req as any).userId;
-  const { type, category, value, unit, timestamp, notes, conversation_id } = parsed.data;
-  const ts = timestamp ?? Date.now();
+  const { type, category, value, unit, timestamp, notes, profile_id } = parsed.data;
+  // Normalize to ms epoch; accept seconds and convert
+  let ts = timestamp ?? Date.now();
+  if (ts < 1e12) ts = ts * 1000;
   const cat = category || 'HEALTH_PARAMS';
-  const convId = conversation_id || 'default-conversation';
-  db.prepare('INSERT INTO health_data (id, user_id, conversation_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(id, userId, convId, type, cat, value || null, unit || null, ts, notes || null);
-  res.status(201).json({ id, type, category: cat, value, unit, timestamp: ts, notes, conversation_id: convId });
+  const profId = profile_id || 'default-profile';
+  db.prepare('INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(id, userId, profId, type, cat, value || null, unit || null, ts, notes || null);
+  res.status(201).json({ id, type, category: cat, value, unit, timestamp: ts, notes, profile_id: profId });
 });
 
 router.get('/api/health', (req: Request, res: Response) => {
@@ -1212,49 +1670,12 @@ router.delete('/api/activities/:id', (req: Request, res: Response) => {
   res.status(204).end();
 });
 
-// Medications CRUD
-const medicationSchema = z.object({
-  name: z.string(),
-  dosage: z.string().optional(),
-  schedule: z.string().optional(),
-  duration_days: z.number().int().optional(),
-  is_forever: z.boolean().optional(),
-  start_date: z.number().int().optional(),
-  conversation_id: z.string().optional(),
-});
-
-router.post('/api/medications', (req: Request, res: Response) => {
-  const parsed = medicationSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const userId = (req as any).userId;
-  const id = randomUUID();
-  const { name, dosage, schedule, duration_days, is_forever, start_date, conversation_id } = parsed.data;
-  const convId = conversation_id || 'default-conversation';
-  db.prepare('INSERT INTO medications (id, user_id, conversation_id, name, dosage, schedule, duration_days, is_forever, start_date) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(id, userId, convId, name, dosage || null, schedule || null, duration_days ?? null, is_forever ? 1 : 0, start_date ?? null);
-  res.status(201).json({ id, ...parsed.data, conversation_id: convId });
-});
-
-router.get('/api/medications', (req: Request, res: Response) => {
-  const userId = (req as any).userId;
-  const activeOnly = req.query.active === 'true';
-  const rows = db.prepare('SELECT * FROM medications WHERE user_id = ?').all(userId)
-    .filter((r: any) => !activeOnly || r.is_forever === 1 || (r.duration_days && r.start_date && (Date.now() - r.start_date) / 86400000 <= r.duration_days));
-  res.json(rows);
-});
-
-router.delete('/api/medications/:id', (req: Request, res: Response) => {
-  const userId = (req as any).userId;
-  const info = db.prepare('DELETE FROM medications WHERE id = ? AND user_id = ?').run(req.params.id, userId);
-  if (info.changes === 0) return res.status(404).json({ error: 'not found' });
-  res.status(204).end();
-});
 
 // Reports CRUD
 const reportSchema = z.object({
   id: z.string().optional(),
   user_id: z.string().optional(),
-  conversation_id: z.string().nullable().optional(),
+  profile_id: z.string().nullable().optional(),
   file_path: z.string(),
   file_type: z.string().optional(), // frontend sends 'file_type'
   type: z.string().optional(), // also accept 'type' for compatibility
@@ -1273,7 +1694,7 @@ router.post('/api/reports', (req: Request, res: Response) => {
   }
   const userId = (req as any).user?.id || (req as any).userId;
   const reportId = p.data.id || randomUUID();
-  const { conversation_id, file_path, ai_summary } = p.data;
+  const { profile_id, file_path, ai_summary } = p.data;
   
   // Handle both file_type and type fields
   const fileType = p.data.file_type || p.data.type || 'unknown';
@@ -1294,19 +1715,19 @@ router.post('/api/reports', (req: Request, res: Response) => {
     timestamp = Date.now();
   }
   
-  // conversation_id is required by database, use default if not provided
-  const conversationId = conversation_id || 'default-conversation';
+  // profile_id is required by database, use default if not provided
+  const profileId = profile_id || 'default-profile';
   
   try {
     db.prepare(`INSERT INTO reports 
-      (id, user_id, conversation_id, file_path, type, ai_summary, upload_date) 
-      VALUES (?,?,?,?,?,?,?)`)
-      .run(reportId, userId, conversationId, file_path, fileType, ai_summary || null, timestamp);
+      (id, user_id, profile_id, file_path, file_type, source, ai_summary, created_at, parsed) 
+      VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run(reportId, userId, profileId, file_path, fileType, source, ai_summary || null, timestamp, 0);
     
     res.status(201).json({ 
       id: reportId, 
       user_id: userId,
-      conversation_id: conversationId,
+  profile_id: profileId,
       file_path, 
       file_type: fileType, // return as file_type for frontend
       type: fileType, // also include for compatibility
@@ -1327,18 +1748,15 @@ router.get('/api/reports', (req: Request, res: Response) => {
   const file_type = req.query.file_type as string | undefined;
   let sql = 'SELECT * FROM reports WHERE user_id = ?';
   const params: any[] = [userId];
-  if (file_type) { sql += ' AND type = ?'; params.push(file_type); } // Use 'type' column
-  sql += ' ORDER BY upload_date DESC'; // Use 'upload_date' column
+  if (file_type) { sql += ' AND file_type = ?'; params.push(file_type); }
+  sql += ' ORDER BY created_at DESC';
   const rows = db.prepare(sql).all(...params);
   
-  // Map database field names to frontend field names
+  // Map database field names to frontend field names for compatibility
   const mappedRows = rows.map((report: any) => ({
     ...report,
-    file_type: report.type, // map 'type' to 'file_type'
-    created_at: new Date(report.upload_date).toISOString(), // map 'upload_date' to 'created_at' as ISO string
-    upload_date: report.upload_date, // keep original for compatibility
-    source: 'upload', // default value since column doesn't exist
-    parsed: 0 // default value since column doesn't exist
+    created_at: new Date(report.created_at).toISOString(), // convert timestamp to ISO string
+    upload_date: report.created_at, // keep original timestamp for compatibility
   }));
   
   res.json(mappedRows);
@@ -1357,13 +1775,11 @@ router.get('/api/reports/:id', (req: Request, res: Response) => {
   const row = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(req.params.id, userId);
   if (!row) return res.status(404).json({ error: 'not found' });
   
-  // Map database field names to frontend field names
+  // Map database field names to frontend field names for compatibility
   const mappedReport = {
     ...row,
-    file_type: (row as any).type, // map 'type' to 'file_type'
-    created_at: (row as any).upload_date, // map 'upload_date' to 'created_at'
-    source: 'upload', // default value since column doesn't exist
-    parsed: 0 // default value since column doesn't exist
+    created_at: new Date((row as any).created_at).toISOString(), // convert timestamp to ISO string
+    upload_date: (row as any).created_at, // keep original timestamp for compatibility
   };
   
   res.json(mappedReport);
@@ -1372,7 +1788,7 @@ router.get('/api/reports/:id', (req: Request, res: Response) => {
 // Update report (PATCH)
 const reportUpdateSchema = z.object({
   ai_summary: z.string().optional(),
-  // Note: 'parsed' column doesn't exist in current database schema
+  parsed: z.number().or(z.boolean()).optional(), // parsed column now exists
 });
 
 router.patch('/api/reports/:id', (req: Request, res: Response) => {
@@ -1395,7 +1811,10 @@ router.patch('/api/reports/:id', (req: Request, res: Response) => {
     updateValues.push(updates.ai_summary);
   }
   
-  // Note: 'parsed' column doesn't exist in current database schema
+  if (updates.parsed !== undefined) {
+    updateFields.push('parsed = ?');
+    updateValues.push(typeof updates.parsed === 'boolean' ? (updates.parsed ? 1 : 0) : updates.parsed);
+  }
   
   if (updateFields.length === 0) {
     return res.status(400).json({ error: 'no valid fields to update' });
@@ -1431,13 +1850,14 @@ router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
     {
       id: randomUUID(),
       user_id: userId,
-      conversation_id: 'default-conversation',
+  profile_id: 'default-profile',
       type: 'GLUCOSE',
       category: 'HEALTH_PARAMS',
       value: '120',
       quantity: null,
       unit: 'mg/dL',
-      timestamp: Math.floor(Date.now() / 1000),
+  // Use ms epoch (was seconds previously)
+  timestamp: Date.now(),
       notes: 'Extracted from report',
       report_id: reportId,
     }
@@ -1448,12 +1868,12 @@ router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
   // In a real implementation, save the health data entries to the database
   for (const healthData of placeholderHealthData) {
     db.prepare(`
-      INSERT INTO health_data (id, user_id, conversation_id, type, category, value, quantity, unit, timestamp, notes, report_id)
+  INSERT INTO health_data (id, user_id, profile_id, type, category, value, quantity, unit, timestamp, notes, report_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       healthData.id,
       healthData.user_id,
-      healthData.conversation_id,
+  healthData.profile_id,
       healthData.type,
       healthData.category,
       healthData.value,
@@ -1472,6 +1892,78 @@ router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
     health_data: placeholderHealthData,
     message: 'Report parsed successfully'
   });
+});
+
+// File upload endpoint for reports
+router.post('/api/reports/upload', upload.single('file'), (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const userId = (req as any).user?.id || (req as any).userId;
+    const reportId = randomUUID();
+  const { profile_id, source, ai_summary } = req.body;
+    
+  // Get file information (store relative path / filename only)
+  const storedFileName = path.basename(req.file.filename);
+  const fileType = req.file.mimetype;
+  const originalName = req.file.originalname;
+  const timestamp = Date.now();
+    
+  // profile_id is required by database, use default if not provided
+  const profileId = profile_id || 'default-profile';
+    
+    // Insert report record into database
+    db.prepare(`INSERT INTO reports 
+      (id, user_id, profile_id, file_path, file_type, source, ai_summary, created_at, parsed, original_file_name) 
+      VALUES (?,?,?,?,?,?,?,?,?,?)`)
+      .run(reportId, userId, profileId, storedFileName, fileType, source || 'upload', ai_summary || null, timestamp, 0, originalName);
+    
+    logger.info('File uploaded successfully', { 
+      reportId,
+      userId,
+      originalName,
+      fileType,
+      storedFileName,
+      diskLocation: path.join(reportsDir, storedFileName)
+    });
+    
+    res.status(201).json({
+      id: reportId,
+      user_id: userId,
+      profile_id: profileId,
+      file_path: storedFileName,
+      file_type: fileType,
+      original_name: originalName,
+      source: source || 'upload',
+      ai_summary: ai_summary || null,
+      created_at: new Date(timestamp).toISOString(),
+      parsed: 0,
+      message: 'File uploaded successfully'
+    });
+  } catch (error) {
+    logger.error('File upload error', { error });
+    res.status(500).json({ error: 'Failed to upload file' });
+  }
+});
+
+// Serve uploaded files
+router.get('/api/reports/files/:filename', (req: Request, res: Response) => {
+  try {
+    const filename = path.basename(req.params.filename); // sanitize
+    const filePath = path.join(reportsDir, filename);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    res.sendFile(filePath);
+  } catch (error) {
+    logger.error('File serve error', { error });
+    res.status(500).json({ error: 'Failed to serve file' });
+  }
 });
 
 // Reminders CRUD
@@ -1544,6 +2036,7 @@ const paramTargetSchema = z.object({
   target_min: z.number().nullable().optional(),
   target_max: z.number().nullable().optional(),
   preferred_unit: z.string().optional(),
+
   description: z.string().optional(),
 });
 
@@ -1572,26 +2065,26 @@ router.post('/api/param-targets/match', (req: Request, res: Response) => {
 
 router.get('/api/messages', (req: Request, res: Response) => {
   const userId = req.user?.id;
-  if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  
-  const conversationId = req.query.conversation_id;
-  const limit = Math.min(Number(req.query.limit || 50), 500);
-  
-  let query = 'SELECT * FROM messages WHERE sender_id = ?';
-  const params: any[] = [userId];
-  
-  if (conversationId) {
-    query += ' AND conversation_id = ?';
-    params.push(conversationId);
-  }
-  
-  query += ' ORDER BY created_at DESC LIMIT ?';
-  params.push(limit);
-  
-  const rows = db.prepare(query).all(...params);
-  res.json({ items: rows });
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  const profileIdFilter = req.query.profile_id as string | undefined;
+  const limit = Math.min(Number(req.query.limit || 50), 200);
+  const before = req.query.before ? Number(req.query.before) : undefined; // cursor (created_at)
+
+  // Include:
+  //  - User's own messages (sender_id = userId)
+  //  - Assistant/system messages in profiles the user is a member of
+  // We derive membership via profile_members; fallback include default 'me-profile'
+  let base = `SELECT m.id, m.profile_id, m.sender_id, m.role, m.content, m.created_at, m.processed, m.stored_record_id, m.interpretation_json
+              FROM messages m
+              LEFT JOIN profile_members pm ON pm.profile_id = m.profile_id AND pm.user_id = ?
+              WHERE (m.sender_id = ? OR (m.role != 'user' AND pm.user_id IS NOT NULL))`;
+  const params: any[] = [userId, userId];
+  if (profileIdFilter) { base += ' AND m.profile_id = ?'; params.push(profileIdFilter); }
+  if (before) { base += ' AND m.created_at < ?'; params.push(before); }
+  base += ' ORDER BY m.created_at DESC LIMIT ?'; params.push(limit);
+  const rows = db.prepare(base).all(...params) as any[];
+  const nextCursor = rows.length === limit ? rows[rows.length - 1].created_at : null;
+  res.json({ items: rows, paging: { limit, nextCursor } });
 });
 
 // Reprocess failed messages
@@ -1615,7 +2108,7 @@ router.post('/api/messages/reprocess-failed', async (req: Request, res: Response
       
       if (interpretation.parsed && interpretation.entry) {
         try {
-          const stored = persistAiEntry(interpretation.entry, userId, msg.conversation_id);
+          const stored = persistAiEntry(interpretation.entry, userId, (msg as any).profile_id);
           db.prepare('UPDATE messages SET interpretation_json = ?, stored_record_id = ? WHERE id = ?')
             .run(JSON.stringify(interpretation), stored.id, msg.id);
           
@@ -1671,7 +2164,16 @@ router.post('/api/messages/reprocess-failed', async (req: Request, res: Response
 // --- Generic (read-only) data browsing endpoints for UI Data page ---
 // NOTE: These are development convenience endpoints; consider securing or removing in production.
 const BROWSABLE_TABLES = [
-  'activities', 'health_data', 'medications', 'messages', 'param_targets', 'reminders', 'reports'
+  'activities',
+  'health_data',
+  'medications',
+  'medication_schedules',
+  'medication_schedule_times',
+  'medication_intake_logs',
+  'messages',
+  'param_targets',
+  'reminders',
+  'reports'
 ];
 
 router.get('/api/admin/tables', (_req: Request, res: Response) => {

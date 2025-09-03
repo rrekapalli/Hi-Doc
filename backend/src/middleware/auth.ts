@@ -26,7 +26,7 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
 
   // Check if we're in dev mode - allow prototype user for all API routes
   if (process.env.NODE_ENV !== 'production') {
-    req.user = { id: 'prototype-user-12345', name: 'Prototype User', email: 'prototype@example.com' };
+  req.user = { id: 'prototype-user', name: 'Prototype User', email: 'prototype@example.com' };
     return next();
   }
 

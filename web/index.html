@@ -13,22 +13,18 @@
   <!-- Web app manifest -->
   <link rel="manifest" href="manifest.json">
   
-  <!-- Flutter web configuration -->
+  <!-- Flutter web configuration (modern initializer) -->
   <script>
-    // Configure Flutter web settings
-    window.flutterConfiguration = {
-      canvasKitBaseUrl: "/canvaskit/",
-      // Increase channel buffer sizes to prevent message discarding
+    window.__hidocConfig = {
+      renderer: 'canvaskit',
       channelBuffers: {
-        "flutter/lifecycle": 15,
-        "flutter/platform": 15,
-        "flutter/settings": 15,
-        "flutter/textinput": 15,
-        "flutter/accessibility": 10,
-        "flutter/semantics": 10
-      },
-      // Performance optimizations
-      renderer: "canvaskit"
+        'flutter/lifecycle': 15,
+        'flutter/platform': 15,
+        'flutter/settings': 15,
+        'flutter/textinput': 15,
+        'flutter/accessibility': 10,
+        'flutter/semantics': 10
+      }
     };
   </script>
 </head>
@@ -43,7 +39,67 @@
     cMapPacked: true,
   }
   </script>
+  <!-- pdfx: use CDN pdf.js (local asset variant 404ed) -->
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.js"></script>
+  <script>
+    (function ensureWorker(){
+      if (typeof pdfjsLib !== 'undefined') {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.worker.js';
+        console.log('[pdfx] pdfjs via CDN, worker set');
+      } else {
+        console.error('[pdfx] pdfjsLib missing after CDN include');
+      }
+    })();
+  </script>
   <!-- Load Flutter app -->
-  <script src="main.dart.js" type="application/javascript"></script>
+  <script>
+    // Temporary shim: suppress DebugService spam "Cannot send Null" by guarding worker postMessage.
+    (function(){
+      var WP = window.Worker && window.Worker.prototype;
+      if (!WP || WP.__hidocPatched) return;
+      var orig = WP.postMessage;
+      WP.postMessage = function(msg, transfer){
+        if (msg == null) { return; }
+        try { return orig.call(this, msg, transfer); } catch (e) { /* swallow */ }
+      };
+      WP.__hidocPatched = true;
+    })();
+
+    // Additional diagnostic + guard: wrap WebSocket.send & window.postMessage to log first null attempt.
+    (function(){
+      // Guard WebSocket.send
+      if (window.WebSocket && !window.WebSocket.__hidocPatched) {
+        var WSP = window.WebSocket.prototype;
+        var origSend = WSP.send;
+        var warned = false;
+        WSP.send = function(data){
+          if (data == null) {
+            if (!warned) { console.warn('[HiDocGuard] Blocked null WebSocket.send; stack=', new Error().stack); warned = true; }
+            return; // swallow
+          }
+          return origSend.call(this, data);
+        };
+        window.WebSocket.__hidocPatched = true;
+      }
+
+      // Guard global postMessage (e.g., window -> iframe / worker) to detect null payloads
+      try {
+        var origWinPost = window.postMessage;
+        if (!origWinPost.__hidocPatched) {
+          var flagged = false;
+          window.postMessage = function(message, targetOrigin, transfer){
+            if (message == null) {
+              if (!flagged) { console.warn('[HiDocGuard] Blocked null window.postMessage; stack=', new Error().stack); flagged = true; }
+              return;
+            }
+            return origWinPost.call(this, message, targetOrigin, transfer);
+          };
+          window.postMessage.__hidocPatched = true;
+        }
+      } catch(_) {}
+    })();
+  </script>
+  <!-- Flutter bootstrap (deprecation-safe) -->
+  <script src="main.dart.js" type="application/javascript" defer></script>
 </body>
 </html>

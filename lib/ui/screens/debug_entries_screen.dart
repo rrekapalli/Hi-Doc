@@ -29,20 +29,8 @@ class _DebugEntriesScreenState extends State<DebugEntriesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: HiDocAppBar(
+      appBar: const HiDocAppBar(
         pageTitle: 'Debug Entries',
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => setState(() => _load()),
-          ),
-          IconButton(
-            icon: const Icon(Icons.person_outline),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const UserSettingsScreen()),
-            ),
-          ),
-        ],
       ),
       body: FutureBuilder<List<HealthEntry>>(
         future: _entriesFuture,

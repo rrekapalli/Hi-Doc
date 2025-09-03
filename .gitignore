@@ -48,6 +48,8 @@ yarn-error.log*
 
 # Local SQLite / data files
 backend/hi_doc.db
+backend/hi_doc.db.backup
+backend/hi_doc.db.original
 
 # OS junk
 .DS_Store

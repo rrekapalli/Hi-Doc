@@ -19,7 +19,7 @@ class AppTheme {
       primary: primary,
       secondary: primaryAccent,
       surface: Colors.white,
-      background: bg,
+  // background deprecated; keep scaffoldBackgroundColor manually set
     );
 
     return base.copyWith(
@@ -55,8 +55,8 @@ class AppTheme {
           backgroundColor: primary,
           foregroundColor: Colors.white,
         ).merge(ButtonStyle(
-          overlayColor: WidgetStateProperty.all(primaryAccent.withOpacity(.12)),
-          shadowColor: WidgetStateProperty.all(Colors.black.withOpacity(.20)),
+          overlayColor: WidgetStateProperty.all(primaryAccent.withValues(alpha: .12)),
+          shadowColor: WidgetStateProperty.all(Colors.black.withValues(alpha: .20)),
         )),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -91,13 +91,34 @@ class AppTheme {
       ),
       appBarTheme: AppBarTheme(
         elevation: 0,
-        backgroundColor: Colors.white.withOpacity(.70),
+  backgroundColor: Colors.white.withValues(alpha: .70),
         surfaceTintColor: Colors.white,
         titleTextStyle: base.textTheme.titleLarge?.copyWith(
           color: textColor,
           fontWeight: FontWeight.w600,
         ),
         foregroundColor: textColor,
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        indicatorColor: primarySoft,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        height: 64,
+        labelTextStyle: WidgetStateProperty.resolveWith<TextStyle?>((states) {
+          final selected = states.contains(WidgetState.selected);
+          return TextStyle(
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? primary : textSoft,
+            letterSpacing: .1,
+          );
+        }),
+        iconTheme: WidgetStateProperty.resolveWith<IconThemeData?>((states) {
+          final selected = states.contains(WidgetState.selected);
+          return IconThemeData(
+            color: selected ? primary : textSoft,
+          );
+        }),
       ),
     );
   }

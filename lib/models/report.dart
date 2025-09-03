@@ -2,7 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'report.g.dart';
 
-enum ReportSource { camera, upload, conversation }
+enum ReportSource { camera, upload, profile }
 enum ReportFileType { pdf, image, unknown }
 
 @JsonSerializable()
@@ -10,8 +10,8 @@ class Report {
   final String id;
   @JsonKey(name: 'user_id')
   final String userId;
-  @JsonKey(name: 'conversation_id')
-  final String? conversationId;
+  @JsonKey(name: 'profile_id')
+  final String? profileId;
   @JsonKey(name: 'file_path')
   final String filePath;
   @JsonKey(name: 'file_type')
@@ -28,7 +28,7 @@ class Report {
   const Report({
     required this.id,
     required this.userId,
-    this.conversationId,
+  this.profileId,
     required this.filePath,
     required this.fileType,
     required this.source,
@@ -44,7 +44,7 @@ class Report {
   Report copyWith({
     String? id,
     String? userId,
-    String? conversationId,
+  String? profileId,
     String? filePath,
     ReportFileType? fileType,
     ReportSource? source,
@@ -56,7 +56,7 @@ class Report {
     return Report(
       id: id ?? this.id,
       userId: userId ?? this.userId,
-      conversationId: conversationId ?? this.conversationId,
+  profileId: profileId ?? this.profileId,
       filePath: filePath ?? this.filePath,
       fileType: fileType ?? this.fileType,
       source: source ?? this.source,
@@ -98,7 +98,7 @@ class Report {
         return '📷';
       case ReportSource.upload:
         return '📂';
-      case ReportSource.conversation:
+      case ReportSource.profile:
         return '💬';
     }
   }

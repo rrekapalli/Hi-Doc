@@ -1,4 +1,5 @@
-class Conversation {
+// Profile domain models (renamed from conversation.dart)
+class Profile {
   final String id;
   final String? title;
   final String type;
@@ -10,7 +11,7 @@ class Conversation {
   final int unreadCount;
   final String? memberNames;
 
-  Conversation({
+  Profile({
     required this.id,
     this.title,
     required this.type,
@@ -23,8 +24,8 @@ class Conversation {
     this.memberNames,
   });
 
-  factory Conversation.fromMap(Map<String, dynamic> map) {
-    return Conversation(
+  factory Profile.fromMap(Map<String, dynamic> map) {
+    return Profile(
       id: map['id'] as String,
       title: map['title'] as String?,
       type: map['type'] as String,
@@ -32,18 +33,18 @@ class Conversation {
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int),
       lastMessage: map['last_message'] as String?,
-      lastMessageTime: map['last_message_at'] != null 
-        ? DateTime.fromMillisecondsSinceEpoch(map['last_message_at'] as int)
-        : null,
+      lastMessageTime: map['last_message_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['last_message_at'] as int)
+          : null,
       unreadCount: map['unread_count'] as int? ?? 0,
       memberNames: map['member_names'] as String?,
     );
   }
 }
 
-class ConversationMessage {
+class ProfileMessage {
   final String id;
-  final String conversationId;
+  final String profileId;
   final String senderId;
   final String senderName;
   final String role;
@@ -55,9 +56,9 @@ class ConversationMessage {
   final int processed;
   final String? storedRecordId;
 
-  ConversationMessage({
+  ProfileMessage({
     required this.id,
-    required this.conversationId,
+    required this.profileId,
     required this.senderId,
     required this.senderName,
     required this.role,
@@ -70,10 +71,10 @@ class ConversationMessage {
     this.storedRecordId,
   });
 
-  factory ConversationMessage.fromMap(Map<String, dynamic> map) {
-    return ConversationMessage(
+  factory ProfileMessage.fromMap(Map<String, dynamic> map) {
+    return ProfileMessage(
       id: map['id'] as String,
-      conversationId: map['conversation_id'] as String,
+  profileId: map['profile_id'] as String,
       senderId: map['sender_id'] as String,
       senderName: map['sender_name'] as String? ?? 'Unknown',
       role: map['role'] as String,

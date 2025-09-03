@@ -1,6 +1,5 @@
 import 'dart:developer' as developer;
-import 'package:flutter/foundation.dart';
-import 'performance_config.dart';
+import '../config/performance_config.dart';
 
 /// Performance monitoring utility for Hi-Doc application
 class PerformanceMonitor {
