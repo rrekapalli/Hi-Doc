@@ -17,7 +17,7 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
   final Set<String> _selectedContactIds = <String>{};
   final DeviceContactsService _contactsService = DeviceContactsService();
   List<Map<String, dynamic>> _contacts = [];
-  List<Map<String, dynamic>> _selectedContacts = [];
+  final List<Map<String, dynamic>> _selectedContacts = [];
   bool _isLoading = false;
   String? _error;
   Timer? _debounceTimer;
@@ -56,6 +56,8 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
 
     try {
       final query = _searchController.text.trim();
+  // Capture needed services before awaiting to satisfy use_build_context_synchronously
+  final db = context.read<DatabaseService>();
       
       // Try to load device contacts first (will be empty on web)
       if (kDebugMode) {
@@ -83,7 +85,6 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
         if (kDebugMode) {
           debugPrint('No device contacts found, falling back to database users');
         }
-        final db = context.read<DatabaseService>();
         final users = await db.searchUsers(
           query: query.isEmpty ? null : query,
           limit: 50,
@@ -149,7 +150,7 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
 
     try {
       final db = context.read<DatabaseService>();
-  final title = _generateProfileTitle();
+      final title = _generateProfileTitle();
       
       // Create or get user IDs for all selected contacts
       final memberIds = <String>[];
@@ -180,19 +181,17 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
         memberIds: memberIds,
       );
       
-      if (mounted) {
-        Navigator.of(context).pop({
-          'profileId': profileId,
-          'title': title,
-          'type': memberIds.length == 1 ? 'direct' : 'group',
-        });
-      }
+      if (!mounted) return;
+      Navigator.of(context).pop({
+        'profileId': profileId,
+        'title': title,
+        'type': memberIds.length == 1 ? 'direct' : 'group',
+      });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create profile: $e')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create profile: $e')),
+      );
     }
   }
 
@@ -332,7 +331,7 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
             Icon(
               Icons.people_outline,
               size: 48,
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.5),
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
             ),
             const SizedBox(height: 16),
             Text(
@@ -344,7 +343,7 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
               Text(
                 'Device contacts are only available on mobile devices',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -394,14 +393,14 @@ class _ContactSearchDialogState extends State<ContactSearchDialog> {
                       Text(
                         contact['email'] as String,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                     if (contact['phone'] != null && contact['email'] == null)
                       Text(
                         contact['phone'] as String,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                   ],

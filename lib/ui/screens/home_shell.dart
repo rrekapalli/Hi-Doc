@@ -3,8 +3,6 @@ import './profiles_screen.dart';
 import './medications_list_v2_screen.dart';
 import 'reports_screen.dart';
 import 'activities_screen.dart';
-import 'debug_entries_screen.dart';
-import 'data_screen.dart'; // still accessible via top bar shortcut
 import 'trends_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -33,13 +31,13 @@ class _HomeShellState extends State<HomeShell> {
           color: Theme.of(context).colorScheme.surface,
           border: Border(
             top: BorderSide(
-              color: Theme.of(context).dividerColor.withOpacity(.6),
+              color: Theme.of(context).dividerColor.withValues(alpha: .6),
               width: 1,
             ),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(.04),
+              color: Colors.black.withValues(alpha: .04),
               blurRadius: 12,
               offset: const Offset(0, -4),
             ),

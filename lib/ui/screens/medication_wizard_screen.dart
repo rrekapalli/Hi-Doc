@@ -348,33 +348,6 @@ class _LabeledBox extends StatelessWidget {
   }
 }
 
-class _TimeCard extends StatelessWidget {
-  final int index; final TimeOfDay time; final VoidCallback onEdit; final VoidCallback? onRemove;
-  const _TimeCard({required this.index, required this.time, required this.onEdit, this.onRemove});
-  @override
-  Widget build(BuildContext context) {
-    final display = time.format(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withOpacity(.06),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: ListTile(
-        leading: const Icon(Icons.alarm),
-        title: Text('Time ${index+1}'),
-        subtitle: Text(display, style: Theme.of(context).textTheme.titleLarge),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(icon: const Icon(Icons.edit), onPressed: onEdit),
-            if (onRemove != null) IconButton(icon: const Icon(Icons.close), onPressed: onRemove),
-          ],
-        ),
-        onTap: onEdit,
-      ),
-    );
-  }
-}
 
 // New per-dosage/time entry model
 class _DoseEntry {
@@ -398,14 +371,14 @@ class _DoseEntry {
 class _DoseEntryCard extends StatelessWidget {
   final int index; final _DoseEntry entry; final List<String> amountUnits; final List<String> durationUnits;
   final VoidCallback onEditTime; final VoidCallback? onRemove; final VoidCallback onChanged;
-  const _DoseEntryCard({super.key, required this.index, required this.entry, required this.amountUnits, required this.durationUnits, required this.onEditTime, this.onRemove, required this.onChanged});
+  const _DoseEntryCard({required this.index, required this.entry, required this.amountUnits, required this.durationUnits, required this.onEditTime, this.onRemove, required this.onChanged});
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final timeDisplay = entry.time.format(context);
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withOpacity(.06),
+  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(20),
       ),
       padding: const EdgeInsets.all(16),

@@ -52,9 +52,10 @@ class _MedicationTimeEditorSheetState extends State<MedicationTimeEditorSheet> {
             child: ElevatedButton(
               onPressed: (_time == null && !_prn) ? null : () async {
                 final db = context.read<DatabaseService>();
+                final navigator = Navigator.of(context);
                 final scheduleRow = await db.getScheduleById(widget.scheduleId);
                 if (scheduleRow == null) {
-                  if (mounted) Navigator.pop(context);
+                  if (mounted) navigator.pop();
                   return;
                 }
                 final repo = MedicationsRepository(db: db, reminderService: ReminderService(db));
@@ -69,7 +70,7 @@ class _MedicationTimeEditorSheetState extends State<MedicationTimeEditorSheet> {
                 );
                 final schedule = MedicationSchedule.fromDb(scheduleRow);
                 await repo.addScheduleTime(schedule, timeRow);
-                if (mounted) Navigator.pop(context, timeRow);
+                if (mounted) navigator.pop(timeRow);
               },
               child: const Text('Save'),
             ),

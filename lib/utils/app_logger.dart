@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'performance_config.dart';
+import '../config/performance_config.dart';
 
 /// Centralized logging utility with performance optimizations
 class AppLogger {

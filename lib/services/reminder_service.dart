@@ -1,5 +1,3 @@
-import 'dart:math';
-import 'package:flutter/foundation.dart';
 import '../services/database_service.dart';
 import '../models/medication_models.dart';
 
@@ -11,7 +9,7 @@ class ReminderService {
   /// Compute next trigger epoch ms for a schedule time given now and timezone (timezone currently unused placeholder)
   int? computeNextTrigger(MedicationSchedule schedule, MedicationScheduleTime timeRow, DateTime nowUtc) {
     // Basic daily/weekly handling. Extend later for every N hours, etc.
-    final tz = schedule.timezone; // TODO: apply timezone conversions
+  // final tz = schedule.timezone; // timezone placeholder not yet used
     final parts = timeRow.timeLocal.split(':');
     if (parts.length < 2) return null;
     int hour = int.tryParse(parts[0]) ?? 0;

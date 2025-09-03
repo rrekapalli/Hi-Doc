@@ -19,7 +19,6 @@ class _DataScreenState extends State<DataScreen> {
   int _page = 1;
   bool _loading = false;
   List<Map<String, dynamic>> _rows = [];
-  List<String> _columns = [];
   int _total = 0;
   static const int _limit = 20;
   String? _error;
@@ -107,7 +106,7 @@ class _DataScreenState extends State<DataScreen> {
         final rows = await db.rawQuery('SELECT * FROM $table ORDER BY $orderBy');
         setState(() {
           _rows = rows;
-          _columns = rows.isNotEmpty ? rows.first.keys.where((c) => c != 'user_id' && c != 'id').toList() : [];
+          // columns list removed (was unused)
           _page = 1; // paging not applied for local tables
           _total = rows.length;
         });
@@ -124,9 +123,7 @@ class _DataScreenState extends State<DataScreen> {
           _rows = (json['items'] as List)
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList();
-          final allColumns = (json['columns'] as List).cast<String>();
-          // Filter out user_id and id columns
-          _columns = allColumns.where((col) => col != 'user_id' && col != 'id').toList();
+          // columns list removed (was unused)
           _page = page;
           _total =
               (json['paging'] as Map)['total'] as int? ?? _rows.length;
@@ -160,9 +157,7 @@ class _DataScreenState extends State<DataScreen> {
           _rows = (json['items'] as List)
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList();
-          final allColumns = (json['columns'] as List).cast<String>();
-          // Filter out user_id and id columns
-          _columns = allColumns.where((col) => col != 'user_id' && col != 'id').toList();
+          // columns list removed (was unused)
           _page = page;
           _total = (json['paging'] as Map)['total'] as int? ?? _rows.length;
         });
@@ -275,14 +270,14 @@ class _DataScreenState extends State<DataScreen> {
                             Icon(
                               Icons.table_chart_outlined,
                               size: 48,
-                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
                             ),
                             const SizedBox(height: 16),
                             Text(
                               'No rows found',
                               style: TextStyle(
                                 fontSize: 16,
-                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                               ),
                             ),
                           ],
@@ -294,13 +289,13 @@ class _DataScreenState extends State<DataScreen> {
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
                             colors: [
-                              Theme.of(context).colorScheme.surface.withOpacity(0.3),
-                              Theme.of(context).colorScheme.surface.withOpacity(0.1),
+                              Theme.of(context).colorScheme.surface.withValues(alpha: 0.3),
+                              Theme.of(context).colorScheme.surface.withValues(alpha: 0.1),
                             ],
                           ),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
                           ),
                         ),
                         child: ClipRRect(
@@ -311,10 +306,10 @@ class _DataScreenState extends State<DataScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFE3F2FD).withOpacity(0.5),
+                                  color: const Color(0xFFE3F2FD).withValues(alpha: 0.5),
                                   border: Border(
                                     bottom: BorderSide(
-                                      color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                                      color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
                                     ),
                                   ),
                                 ),
@@ -346,7 +341,7 @@ class _DataScreenState extends State<DataScreen> {
                                         text,
                                         style: TextStyle(
                                           fontSize: 11,
-                                          color: const Color(0xFF1565C0).withOpacity(0.7),
+                                          color: const Color(0xFF1565C0).withValues(alpha: 0.7),
                                         ),
                                       );
                                     }),
@@ -387,7 +382,7 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Widget _buildDataCard(Map<String, dynamic> row, int index, BuildContext context) {
-    final theme = Theme.of(context);
+  final theme = Theme.of(context); // ignore: unused_local_variable
   final createdBy = row['created_by']?.toString();
   final createdTime = _formatTimestamp(row);
     
@@ -397,14 +392,14 @@ class _DataScreenState extends State<DataScreen> {
       decoration: BoxDecoration(
         color: index.isEven 
           ? const Color(0xFFF5F5F5)
-          : const Color(0xFFE3F2FD).withOpacity(0.3),
+          : const Color(0xFFE3F2FD).withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: theme.colorScheme.outline.withOpacity(0.1),
+          color: theme.colorScheme.outline.withValues(alpha: 0.1),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 4,
             offset: const Offset(0, 1),
           ),
@@ -428,7 +423,7 @@ class _DataScreenState extends State<DataScreen> {
                       createdBy,
                       style: TextStyle(
                         fontSize: 9,
-                        color: theme.colorScheme.onSurface.withOpacity(0.45),
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
                         fontStyle: FontStyle.italic,
                       ),
                       overflow: TextOverflow.ellipsis,
@@ -441,7 +436,7 @@ class _DataScreenState extends State<DataScreen> {
                     createdTime,
                     style: TextStyle(
                       fontSize: 9,
-                      color: theme.colorScheme.onSurface.withOpacity(0.45),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
                     ),
                   ),
               ],
@@ -452,7 +447,7 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   List<Widget> _buildGroupedList(BuildContext context) {
-  final theme = Theme.of(context);
+  // theme variable removed (was unused)
   // Filter
   final source = _applySearch(_rows);
   // Sort rows by created_at / timestamp descending
@@ -489,7 +484,13 @@ class _DataScreenState extends State<DataScreen> {
         ));
         lastWeekYearKey = weekKey;
       }
-      final isFirstOfDay = lastDay == null || day.isAfter(lastDay!);
+      // First entry of a new day if lastDay is null or this row's day is after lastDay
+      bool isFirstOfDay;
+      if (lastDay == null) {
+        isFirstOfDay = true;
+      } else {
+        isFirstOfDay = day.isAfter(lastDay);
+      }
       if (isFirstOfDay) {
         widgets.add(_DayHeaderAndCard(
           day: day,
@@ -572,7 +573,7 @@ class _DataScreenState extends State<DataScreen> {
         Container(
           padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
-            color: const Color(0xFF1565C0).withOpacity(0.1),
+            color: const Color(0xFF1565C0).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(
@@ -594,7 +595,7 @@ class _DataScreenState extends State<DataScreen> {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.onSurface.withOpacity(0.55),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -607,7 +608,7 @@ class _DataScreenState extends State<DataScreen> {
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
                   color: primaryValue.isEmpty
-                      ? theme.colorScheme.onSurface.withOpacity(0.35)
+                      ? theme.colorScheme.onSurface.withValues(alpha: 0.35)
                       : theme.colorScheme.onSurface,
                   height: 1.25,
                 ),
@@ -636,7 +637,7 @@ class _DataScreenState extends State<DataScreen> {
             margin: const EdgeInsets.only(right: 6),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.55),
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
@@ -647,7 +648,7 @@ class _DataScreenState extends State<DataScreen> {
                   style: TextStyle(
                     fontSize: 8.5,
                     fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface.withOpacity(0.55),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                     letterSpacing: 0.3,
                   ),
                 ),
@@ -656,7 +657,7 @@ class _DataScreenState extends State<DataScreen> {
                   value,
                   style: TextStyle(
                     fontSize: 10,
-                    color: theme.colorScheme.onSurface.withOpacity(0.85),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -801,7 +802,7 @@ class _DataScreenState extends State<DataScreen> {
         color: Theme.of(context).colorScheme.surface,
         border: Border(
           top: BorderSide(
-            color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
           ),
         ),
       ),
@@ -811,7 +812,7 @@ class _DataScreenState extends State<DataScreen> {
             'Page $_page / $totalPages (total $_total rows)',
             style: TextStyle(
               fontSize: 13,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(width: 16),
@@ -847,7 +848,7 @@ class _WeekHeader extends StatelessWidget {
         children: [
           Expanded(
             child: Divider(
-              color: theme.colorScheme.outline.withOpacity(0.25),
+              color: theme.colorScheme.outline.withValues(alpha: 0.25),
               thickness: 1,
               endIndent: 8,
             ),
@@ -863,7 +864,7 @@ class _WeekHeader extends StatelessWidget {
           ),
           Expanded(
             child: Divider(
-              color: theme.colorScheme.outline.withOpacity(0.25),
+              color: theme.colorScheme.outline.withValues(alpha: 0.25),
               thickness: 1,
               indent: 8,
             ),
@@ -895,7 +896,7 @@ class _DayHeaderAndCard extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurface.withOpacity(0.6),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                   letterSpacing: 0.5,
                 ),
               ),
@@ -904,7 +905,7 @@ class _DayHeaderAndCard extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
-                  color: theme.colorScheme.onSurface.withOpacity(0.85),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
                 ),
               ),
             ],

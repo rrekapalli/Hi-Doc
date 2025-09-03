@@ -60,44 +60,40 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
     setState(() => _isParsingData = true);
     
     try {
+      final messenger = ScaffoldMessenger.of(context);
       final parsedData = await _reportsService.parseReport(widget.report.id);
-      
+      if (!mounted) return;
       if (parsedData.isNotEmpty) {
         final reportsProvider = context.read<ReportsProvider>();
         await reportsProvider.markReportAsParsed(widget.report.id);
-        
+        if (!mounted) return;
         setState(() {
           _parsedData = parsedData;
           _showParsedData = true;
         });
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Report parsed successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Report parsed successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('No health data could be extracted from this report'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
-            content: Text('Failed to parse report: $e'),
+            content: const Text('No health data could be extracted from this report'),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
+    } catch (e) {
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Failed to parse report: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
     } finally {
       setState(() => _isParsingData = false);
     }
@@ -146,10 +142,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               border: Border(
                 bottom: BorderSide(
-                  color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
                 ),
               ),
             ),
@@ -184,7 +180,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
                               Text(
                                 DateFormat('MMMM d, y • h:mm a').format(widget.report.createdAt),
                                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                                 ),
                               ),
                             ],
@@ -198,12 +194,12 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
                         decoration: BoxDecoration(
                           color: _isParsingData
                               ? Theme.of(context).colorScheme.primaryContainer
-                              : Colors.green.withOpacity(0.1),
+                              : Colors.green.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
                             color: _isParsingData
                                 ? Theme.of(context).colorScheme.primary
-                                : Colors.green.withOpacity(0.3),
+                                : Colors.green.withValues(alpha: 0.3),
                           ),
                         ),
                         child: Row(
@@ -258,7 +254,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
                       color: Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                        color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
                       ),
                     ),
                     child: Column(
@@ -289,7 +285,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
               decoration: BoxDecoration(
                 border: Border(
                   bottom: BorderSide(
-                    color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                    color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
                   ),
                 ),
               ),
@@ -648,7 +644,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
                       Text(
                         'Error: $error',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                         ),
                       ),
                     ],
@@ -708,7 +704,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
             Icon(
               Icons.data_array,
               size: 64,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
             ),
             const SizedBox(height: 16),
             Text(
@@ -719,7 +715,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
             Text(
               'Use AI parsing to extract health parameters',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
               ),
             ),
             const SizedBox(height: 24),
@@ -759,7 +755,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
                   Text(
                     data.notes!,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
                 Text(
@@ -767,7 +763,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen>
                     DateTime.fromMillisecondsSinceEpoch(data.timestamp * 1000),
                   ),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
                   ),
                 ),
               ],

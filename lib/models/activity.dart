@@ -24,7 +24,7 @@ class Activity {
   });
 
   factory Activity.fromJson(Map<String, dynamic> json) {
-    double? _toDouble(dynamic v) {
+  double? toDouble(dynamic v) {
       if (v == null) return null;
       if (v is double) return v;
       if (v is int) return v.toDouble();
@@ -54,9 +54,9 @@ class Activity {
   profileId: json['profile_id'] as String? ?? 'default-profile',
       name: json['name'] as String? ?? 'Activity',
       durationMinutes: json['duration_minutes'] is int ? json['duration_minutes'] as int : int.tryParse('${json['duration_minutes']}'),
-      distanceKm: _toDouble(json['distance_km']),
+  distanceKm: toDouble(json['distance_km']),
       intensity: json['intensity'] as String?,
-      caloriesBurned: _toDouble(json['calories_burned']),
+  caloriesBurned: toDouble(json['calories_burned']),
       timestamp: DateTime.fromMillisecondsSinceEpoch(ts),
       notes: json['notes'] as String?,
     );

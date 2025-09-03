@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
@@ -54,13 +53,13 @@ class NotificationService {
             sound: true,
           );
     } catch (e) {
-      debugPrint('Failed to initialize notifications: \$e');
+      debugPrint('Failed to initialize notifications: $e');
     }
   }
 
   /// Handle notification tap
   void _handleNotificationResponse(NotificationResponse details) {
-    debugPrint('Notification tapped: \${details.payload}');
+    debugPrint('Notification tapped: ${details.payload}');
   }
 
   /// Cancel all scheduled notifications
@@ -70,7 +69,7 @@ class NotificationService {
       await _plugin.cancelAll();
       debugPrint('All notifications cancelled');
     } catch (e) {
-      debugPrint('Failed to cancel notifications: \$e');
+      debugPrint('Failed to cancel notifications: $e');
     }
   }
 

@@ -12,7 +12,7 @@ class ProfilesScreen extends StatefulWidget {
 }
 
 class _ProfilesScreenState extends State<ProfilesScreen> {
-  String _activeProfileId = 'default-profile';
+  final String _activeProfileId = 'default-profile';
 
   @override
   void initState() {

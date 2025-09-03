@@ -19,7 +19,7 @@ class AppTheme {
       primary: primary,
       secondary: primaryAccent,
       surface: Colors.white,
-      background: bg,
+  // background deprecated; keep scaffoldBackgroundColor manually set
     );
 
     return base.copyWith(
@@ -55,8 +55,8 @@ class AppTheme {
           backgroundColor: primary,
           foregroundColor: Colors.white,
         ).merge(ButtonStyle(
-          overlayColor: WidgetStateProperty.all(primaryAccent.withOpacity(.12)),
-          shadowColor: WidgetStateProperty.all(Colors.black.withOpacity(.20)),
+          overlayColor: WidgetStateProperty.all(primaryAccent.withValues(alpha: .12)),
+          shadowColor: WidgetStateProperty.all(Colors.black.withValues(alpha: .20)),
         )),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -91,7 +91,7 @@ class AppTheme {
       ),
       appBarTheme: AppBarTheme(
         elevation: 0,
-        backgroundColor: Colors.white.withOpacity(.70),
+  backgroundColor: Colors.white.withValues(alpha: .70),
         surfaceTintColor: Colors.white,
         titleTextStyle: base.textTheme.titleLarge?.copyWith(
           color: textColor,

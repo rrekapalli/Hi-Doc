@@ -82,7 +82,7 @@ class HiDocAppBar extends StatelessWidget implements PreferredSizeWidget {
           decoration: BoxDecoration(
             color: cs.surface,
             border: Border(
-              top: BorderSide(color: AppTheme.line.withOpacity(.6), width: 0.6),
+              top: BorderSide(color: AppTheme.line.withValues(alpha: .6), width: 0.6),
               bottom: BorderSide(color: AppTheme.line, width: 1),
             ),
           ),

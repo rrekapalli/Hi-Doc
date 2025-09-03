@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:uuid/uuid.dart';
 import 'package:provider/provider.dart';
-import '../debug/dev_title.dart';
 import '../common/hi_doc_app_bar.dart';
 import '../../providers/medications_provider.dart';
 import '../../providers/selected_profile_provider.dart';
@@ -37,7 +36,7 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   static const int _weekCenterPage = 10000; // large number to allow back/forward paging
   int _currentWeekPage = _weekCenterPage;
   late DateTime _weekAnchorMonday; // Monday of the currently centered week
-  List<DateTime> _monthWindow = List.generate(13, (i) {
+  final List<DateTime> _monthWindow = List.generate(13, (i) {
     final now = DateTime.now();
     return DateTime(now.year, now.month + i - 12, 1);
   });
@@ -461,10 +460,8 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
     // Append future months when near end (lazy load months, data already on-demand)
     if (pageIndex > _monthWindow.length - 4) {
       final last = _monthWindow.last;
-      for (int i=1;i<=6;i++) {
-        _monthWindow.add(DateTime(last.year, last.month + i, 1));
-      }
-      setState(() {}); // rebuild month strip
+      final additions = [for (int i=1;i<=6;i++) DateTime(last.year, last.month + i, 1)];
+      setState(() => _monthWindow.addAll(additions));
     }
   }
 
@@ -593,10 +590,10 @@ class _TimelineRow extends StatelessWidget {
                   width: 30,
                   height: 30,
                   decoration: BoxDecoration(
-                    color: entry.taken ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceVariant,
+                    color: entry.taken ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(entry.taken ? Icons.check : Icons.radio_button_unchecked, size: 18, color: entry.taken ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurfaceVariant),
+                  child: Icon(entry.taken ? Icons.check : Icons.radio_button_unchecked, size: 18, color: entry.taken ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface),
                 ),
               ),
             ],
@@ -635,9 +632,9 @@ class _FilterToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Color selectedBg = Theme.of(context).colorScheme.primary;
-    Color unSelBg = Theme.of(context).colorScheme.surfaceVariant;
+  Color unSelBg = Theme.of(context).colorScheme.surfaceContainerHighest;
     TextStyle txtSel = TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontWeight: FontWeight.w600, fontSize: 12);
-    TextStyle txtUn = TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500, fontSize: 12);
+  TextStyle txtUn = TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w500, fontSize: 12);
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(

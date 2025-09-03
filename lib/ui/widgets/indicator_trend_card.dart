@@ -44,7 +44,7 @@ class IndicatorTrendCard extends StatelessWidget {
           'Normal': Colors.green.shade600,
           '—': Colors.grey.shade600,
         }[classification] ?? theme.colorScheme.secondary;
-        final bandColor = Colors.green.withOpacity(.18);
+  final bandColor = Colors.green.withValues(alpha: 0.18);
         final multi = tp.multiSeries;
         final otherKeys = multi.keys.where((k) => k != tp.selectedType).take(1).toList();
         final secondKey = otherKeys.isNotEmpty ? otherKeys.first : null;
@@ -94,7 +94,7 @@ class IndicatorTrendCard extends StatelessWidget {
                             if (hasBand)
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(color: bandColor.withOpacity(.55), borderRadius: BorderRadius.circular(6)),
+                                decoration: BoxDecoration(color: bandColor.withValues(alpha: 0.55), borderRadius: BorderRadius.circular(6)),
                                 child: Text('${bandMin!.toStringAsFixed(0)} - ${bandMax!.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11, color: Colors.black87)),
                               ),
                           ],
@@ -113,8 +113,8 @@ class IndicatorTrendCard extends StatelessWidget {
                             drawVerticalLine: true,
                             verticalInterval: points.length <= 1 ? 1 : (points.length / 4).ceilToDouble(),
                             horizontalInterval: span == 0 ? 1 : span / 4,
-                            getDrawingHorizontalLine: (v) => FlLine(color: Colors.teal.withOpacity(0.08), strokeWidth: 1),
-                            getDrawingVerticalLine: (v) => FlLine(color: Colors.teal.withOpacity(0.05), strokeWidth: 1),
+                            getDrawingHorizontalLine: (v) => FlLine(color: Colors.teal.withValues(alpha: 0.08), strokeWidth: 1),
+                            getDrawingVerticalLine: (v) => FlLine(color: Colors.teal.withValues(alpha: 0.05), strokeWidth: 1),
                           ),
                           titlesData: FlTitlesData(
                             bottomTitles: AxisTitles(
@@ -190,7 +190,7 @@ class IndicatorTrendCard extends StatelessWidget {
                         _LegendDot(color: primaryColor, label: tp.selectedType ?? 'Reading'),
                         if (secondKey != null) _LegendDot(color: Colors.orange, label: secondKey),
                         if (hasBand)
-                          _LegendDot(color: bandColor.withOpacity(.8), label: 'Target range')
+                          _LegendDot(color: bandColor.withValues(alpha: 0.80), label: 'Target range')
                         else
                           const Text('No target range available', style: TextStyle(fontSize: 12, color: Colors.black54)),
                       ],
@@ -325,7 +325,7 @@ class _ReadingsTable extends StatelessWidget {
   const _ReadingsTable({required this.points, required this.target});
   @override
   Widget build(BuildContext context) {
-    final unit = target?.preferredUnit ?? '';
+  // Removed unused unit variable (target?.preferredUnit)
     // Show last up to 7 readings sorted descending by time
     final rows = points
         .map((p) => p)
@@ -339,7 +339,7 @@ class _ReadingsTable extends StatelessWidget {
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.withOpacity(.25)),
+            border: Border.all(color: Colors.grey.withValues(alpha: 0.25)),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -379,7 +379,7 @@ class _ReadingsTable extends StatelessWidget {
 
   Widget _tableRow({required String date, required String value, required String range, required String notes}) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-    decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey.withOpacity(.18)))),
+  decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey.withValues(alpha: 0.18)))),
     child: Row(
       children: [
         Expanded(flex: 3, child: _CellText(date)),

@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -48,7 +47,7 @@ class ReportsService {
     final reportsDir = await _getReportsDirectory();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final extension = path.extension(sourceFile.path);
-    final finalFileName = fileName ?? 'report_${timestamp}$extension';
+  final finalFileName = fileName ?? 'report_$timestamp$extension';
     
     final targetPath = path.join(reportsDir.path, finalFileName);
     final targetFile = await sourceFile.copy(targetPath);
@@ -80,23 +79,6 @@ class ReportsService {
     }
   }
 
-  /// Determine file type from extension
-  ReportFileType _getFileType(String filePath) {
-    final extension = path.extension(filePath).toLowerCase();
-    switch (extension) {
-      case '.pdf':
-        return ReportFileType.pdf;
-      case '.jpg':
-      case '.jpeg':
-      case '.png':
-      case '.gif':
-      case '.bmp':
-      case '.webp':
-        return ReportFileType.image;
-      default:
-        return ReportFileType.unknown;
-    }
-  }
 
   /// Create a new report on the backend
   Future<Report> createReport(Report report) async {

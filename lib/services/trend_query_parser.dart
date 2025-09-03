@@ -61,12 +61,19 @@ class TrendQueryParser {
     }
     // 2. last week/month/year
     if (from == null) {
-      if (text.contains('last week')) from = now.subtract(const Duration(days: 7));
-      else if (text.contains('last month')) from = now.subtract(const Duration(days: 30));
-      else if (text.contains('last 7 days')) from = now.subtract(const Duration(days: 7));
-      else if (text.contains('last 30 days')) from = now.subtract(const Duration(days: 30));
-      else if (text.contains('last 90 days')) from = now.subtract(const Duration(days: 90));
-      else if (text.contains('last year')) from = now.subtract(const Duration(days: 365));
+      if (text.contains('last week')) {
+        from = now.subtract(const Duration(days: 7));
+      } else if (text.contains('last month')) {
+        from = now.subtract(const Duration(days: 30));
+      } else if (text.contains('last 7 days')) {
+        from = now.subtract(const Duration(days: 7));
+      } else if (text.contains('last 30 days')) {
+        from = now.subtract(const Duration(days: 30));
+      } else if (text.contains('last 90 days')) {
+        from = now.subtract(const Duration(days: 90));
+      } else if (text.contains('last year')) {
+        from = now.subtract(const Duration(days: 365));
+      }
     }
     // 3. today / yesterday
     if (from == null) {
@@ -74,8 +81,9 @@ class TrendQueryParser {
         from = DateTime(now.year, now.month, now.day);
         to = from.add(const Duration(days: 1));
       } else if (text.contains('yesterday')) {
-        final y = DateTime(now.year, now.month, now.day).subtract(const Duration(days:1));
-        from = y; to = y.add(const Duration(days:1));
+        final y = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 1));
+        from = y;
+        to = y.add(const Duration(days: 1));
       }
     }
     // 4. since <date>

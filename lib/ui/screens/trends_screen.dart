@@ -48,15 +48,16 @@ class _TrendsScaffoldState extends State<_TrendsScaffold> {
     if (text.isEmpty) return;
     setState(() { _submitting = true; });
     final tp = context.read<TrendsProvider>();
+    final messenger = ScaffoldMessenger.of(context);
     final parsed = await tp.runNaturalLanguageQuery(text);
+    if (!mounted) return; // widget disposed mid-query
     setState(() { _submitting = false; });
     if (parsed.error == null) {
-      // Scroll to top where chart lives
       if (_scrollController.hasClients) {
         await _scrollController.animateTo(0, duration: const Duration(milliseconds: 400), curve: Curves.easeOut);
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(content: Text(parsed.hint ?? 'Could not parse query')),
       );
     }

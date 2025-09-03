@@ -200,8 +200,9 @@ class DatabaseService {
         // Update foreign key references if needed (SQLite doesn't auto-update); recreate schedules table if referencing old name.
         // Check a sample pragma foreign_key_list
         // For simplicity if schedules table exists referencing medications_v2 (old), recreate and copy.
-        final scheduleInfo = await db.rawQuery("PRAGMA table_info(medication_schedules)");
-        // No automatic action; schedule rows already reference medication ids (ids unchanged).
+  // PRAGMA table_info used for potential future column adjustments; kept commented to avoid unused variable warning.
+  // final scheduleInfo = await db.rawQuery("PRAGMA table_info(medication_schedules)");
+  // No automatic action; schedule rows already reference medication ids (ids unchanged).
       }
     } catch (e) {
       debugPrint('Migration rename medication tables failed: $e');

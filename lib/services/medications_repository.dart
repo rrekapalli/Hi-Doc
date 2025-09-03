@@ -1,8 +1,6 @@
-import 'package:flutter/foundation.dart';
-import 'package:uuid/uuid.dart';
 import '../services/database_service.dart';
 import '../models/medication_models.dart';
-import 'reminder_service.dart';
+import 'reminder_service.dart'; // required for recompute
 
 class MedicationsRepository {
   final DatabaseService db;
