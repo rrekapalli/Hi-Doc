@@ -69,7 +69,12 @@ class TrendsProvider with ChangeNotifier {
     if (last != null && _types.contains(last)) {
       _selectedType = last;
     } else if (_types.isNotEmpty) {
-      _selectedType = _types.first;
+      // Prefer GLU_FAST as default indicator when available
+      if (_types.contains('GLU_FAST')) {
+        _selectedType = 'GLU_FAST';
+      } else {
+        _selectedType = _types.first;
+      }
     }
     if (_selectedType != null) {
       await _loadSeries();
