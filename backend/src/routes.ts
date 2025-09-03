@@ -24,21 +24,21 @@ interface Request extends ExpressRequest {
 import { logger } from './logger.js';
 import { verifyMicrosoftIdToken } from './msAuth.js';
 
+// Reports directory (project root ./reports). We only persist the filename in DB.
+const reportsDir = path.join(__dirname, '../../reports');
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, '../../reports');
-    // Ensure the directory exists
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+  destination: function (_req, _file, cb) {
+    if (!fs.existsSync(reportsDir)) {
+      fs.mkdirSync(reportsDir, { recursive: true });
     }
-    cb(null, uploadDir);
+    cb(null, reportsDir);
   },
-  filename: function (req, file, cb) {
-    // Generate unique filename with original extension
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+  filename: function (_req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
-    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
+    cb(null, 'report-' + uniqueSuffix + ext);
   }
 });
 
@@ -1416,8 +1416,13 @@ router.get('/api/health-data/series', (req: Request, res: Response) => {
     if (!type) return res.status(400).json({ error: 'type required' });
     const fromMs = Number(req.query.from) || 0;
     const toMs = Number(req.query.to) || Date.now();
-    const rows = db.prepare('SELECT timestamp, value, unit FROM health_data WHERE user_id = ? AND type = ? AND timestamp BETWEEN ? AND ? ORDER BY timestamp ASC')
+    let rows = db.prepare('SELECT timestamp, value, unit FROM health_data WHERE user_id = ? AND type = ? AND timestamp BETWEEN ? AND ? ORDER BY timestamp ASC')
       .all(userId, type, fromMs, toMs) as any[];
+    // Fallback alias: some older entries may have used 'glucose' vs 'GLU_FAST'
+    if (!rows.length && type === 'GLU_FAST') {
+      rows = db.prepare("SELECT timestamp, value, unit FROM health_data WHERE user_id = ? AND type IN ('GLU_FAST','glucose') AND timestamp BETWEEN ? AND ? ORDER BY timestamp ASC")
+        .all(userId, fromMs, toMs) as any[];
+    }
     const cleaned = rows.map(r => ({ timestamp: r.timestamp, value: r.value, unit: r.unit }));
     res.json(cleaned);
   } catch (e:any) {
@@ -1465,7 +1470,15 @@ router.post('/api/ai/interpret-store', async (req: Request, res: Response) => {
 // Helper to map AI entry -> DB rows.
 function persistAiEntry(entry: NonNullable<AiInterpretation['entry']>, userId: string, profileId: string) {
   const id = randomUUID();
-  const ts = entry.timestamp ?? Date.now();
+  // Normalize timestamp to milliseconds (AI may occasionally supply seconds epoch)
+  let ts = entry.timestamp ?? Date.now();
+  if (ts < 1e12) ts = ts * 1000;
+  // Safety clamp: if timestamp is >3 days in future or >400 days in past for entries without explicit date flag, reset to now.
+  const now = Date.now();
+  const ageDays = (now - ts) / 86400000;
+  if (ageDays > 400 || ts - now > 3 * 86400000) {
+    ts = now;
+  }
   const category = entry.category || 'HEALTH_PARAMS';
   
   switch (entry.type) {
@@ -1573,7 +1586,9 @@ router.post('/api/health', (req: Request, res: Response) => {
   const id = randomUUID();
   const userId = (req as any).userId;
   const { type, category, value, unit, timestamp, notes, profile_id } = parsed.data;
-  const ts = timestamp ?? Date.now();
+  // Normalize to ms epoch; accept seconds and convert
+  let ts = timestamp ?? Date.now();
+  if (ts < 1e12) ts = ts * 1000;
   const cat = category || 'HEALTH_PARAMS';
   const profId = profile_id || 'default-profile';
   db.prepare('INSERT INTO health_data (id, user_id, profile_id, type, category, value, unit, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?)')
@@ -1832,7 +1847,8 @@ router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
       value: '120',
       quantity: null,
       unit: 'mg/dL',
-      timestamp: Math.floor(Date.now() / 1000),
+  // Use ms epoch (was seconds previously)
+  timestamp: Date.now(),
       notes: 'Extracted from report',
       report_id: reportId,
     }
@@ -1880,11 +1896,11 @@ router.post('/api/reports/upload', upload.single('file'), (req: Request, res: Re
     const reportId = randomUUID();
   const { profile_id, source, ai_summary } = req.body;
     
-    // Get file information
-    const filePath = req.file.path;
-    const fileType = req.file.mimetype;
-    const originalName = req.file.originalname;
-    const timestamp = Date.now();
+  // Get file information (store relative path / filename only)
+  const storedFileName = path.basename(req.file.filename);
+  const fileType = req.file.mimetype;
+  const originalName = req.file.originalname;
+  const timestamp = Date.now();
     
   // profile_id is required by database, use default if not provided
   const profileId = profile_id || 'default-profile';
@@ -1893,21 +1909,22 @@ router.post('/api/reports/upload', upload.single('file'), (req: Request, res: Re
     db.prepare(`INSERT INTO reports 
       (id, user_id, profile_id, file_path, file_type, source, ai_summary, created_at, parsed, original_file_name) 
       VALUES (?,?,?,?,?,?,?,?,?,?)`)
-      .run(reportId, userId, profileId, filePath, fileType, source || 'upload', ai_summary || null, timestamp, 0, originalName);
+      .run(reportId, userId, profileId, storedFileName, fileType, source || 'upload', ai_summary || null, timestamp, 0, originalName);
     
     logger.info('File uploaded successfully', { 
-      reportId, 
-      userId, 
-      originalName, 
-      fileType, 
-      filePath 
+      reportId,
+      userId,
+      originalName,
+      fileType,
+      storedFileName,
+      diskLocation: path.join(reportsDir, storedFileName)
     });
     
-    res.status(201).json({ 
-      id: reportId, 
+    res.status(201).json({
+      id: reportId,
       user_id: userId,
-  profile_id: profileId,
-      file_path: filePath,
+      profile_id: profileId,
+      file_path: storedFileName,
       file_type: fileType,
       original_name: originalName,
       source: source || 'upload',
@@ -1925,17 +1942,15 @@ router.post('/api/reports/upload', upload.single('file'), (req: Request, res: Re
 // Serve uploaded files
 router.get('/api/reports/files/:filename', (req: Request, res: Response) => {
   try {
-    const filename = req.params.filename;
-    const filePath = path.join(__dirname, '../../reports', filename);
-    
-    // Check if file exists
+    const filename = path.basename(req.params.filename); // sanitize
+    const filePath = path.join(reportsDir, filename);
+
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
     }
-    
-  // Serve the file with caching headers (immutable upload)
-  res.setHeader('Cache-Control', 'public, max-age=604800, immutable'); // 7 days
-  res.sendFile(filePath);
+
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    res.sendFile(filePath);
   } catch (error) {
     logger.error('File serve error', { error });
     res.status(500).json({ error: 'Failed to serve file' });
@@ -2042,15 +2057,23 @@ router.post('/api/param-targets/match', (req: Request, res: Response) => {
 router.get('/api/messages', (req: Request, res: Response) => {
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-  const profileIdFilter = req.query.profile_id;
+  const profileIdFilter = req.query.profile_id as string | undefined;
   const limit = Math.min(Number(req.query.limit || 50), 200);
   const before = req.query.before ? Number(req.query.before) : undefined; // cursor (created_at)
-  let query = 'SELECT id, profile_id, sender_id, role, content, created_at, processed, stored_record_id FROM messages WHERE sender_id = ?';
-  const params: any[] = [userId];
-  if (profileIdFilter) { query += ' AND profile_id = ?'; params.push(profileIdFilter); }
-  if (before) { query += ' AND created_at < ?'; params.push(before); }
-  query += ' ORDER BY created_at DESC LIMIT ?'; params.push(limit);
-  const rows = db.prepare(query).all(...params) as any[];
+
+  // Include:
+  //  - User's own messages (sender_id = userId)
+  //  - Assistant/system messages in profiles the user is a member of
+  // We derive membership via profile_members; fallback include default 'me-profile'
+  let base = `SELECT m.id, m.profile_id, m.sender_id, m.role, m.content, m.created_at, m.processed, m.stored_record_id, m.interpretation_json
+              FROM messages m
+              LEFT JOIN profile_members pm ON pm.profile_id = m.profile_id AND pm.user_id = ?
+              WHERE (m.sender_id = ? OR (m.role != 'user' AND pm.user_id IS NOT NULL))`;
+  const params: any[] = [userId, userId];
+  if (profileIdFilter) { base += ' AND m.profile_id = ?'; params.push(profileIdFilter); }
+  if (before) { base += ' AND m.created_at < ?'; params.push(before); }
+  base += ' ORDER BY m.created_at DESC LIMIT ?'; params.push(limit);
+  const rows = db.prepare(base).all(...params) as any[];
   const nextCursor = rows.length === limit ? rows[rows.length - 1].created_at : null;
   res.json({ items: rows, paging: { limit, nextCursor } });
 });

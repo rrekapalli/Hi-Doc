@@ -7,7 +7,7 @@ import compression from 'compression';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
 import router from './routes.js';
-import { migrate, db } from './db.js';
+import { initDb, db } from './db.js';
 import { logger } from './logger.js';
 import { randomUUID } from 'crypto';
 
@@ -33,7 +33,7 @@ import { authMiddleware } from './middleware/auth.js';
 import profilesRouter from './routes/profiles.js';
 
 logger.info('Logger initialized', { level: logger.level });
-migrate();
+initDb();
 // Apply runtime PRAGMAs (safe performance tweaks)
 try {
   db.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA temp_store = MEMORY; PRAGMA mmap_size = 268435456;`);

@@ -157,7 +157,7 @@ Rules:
 3. Extract the main numeric or text measurement into 'value'.
 4. If the measurement includes a count or amount, store in 'quantity'.
 5. Identify the correct 'unit' (examples: mg/dL, bpm, steps, kcal).
-6. 'timestamp' should be in UNIX epoch (seconds).
+6. 'timestamp' should be UNIX epoch milliseconds (Number(Date.now())). If model produces seconds convert to ms.
 7. 'notes' can contain extra information, like "after lunch" or "during exercise".
 8. Use UUID v4 for 'id'.
 9. Always return data in JSON exactly matching the health_data fields.
@@ -501,6 +501,50 @@ export function aiProviderStatus() {
 
 // Exposed for tests: ensure interpretation has required fields / downgrade invalid vital.
 export function normalizeInterpretation(originalMessage: string, interpretation: AiInterpretation, verbose?: boolean): AiInterpretation {
+  // Timestamp normalization (centralized): ensure ms epoch and adjust relative phrases
+  try {
+    if (interpretation.entry) {
+      const e: any = interpretation.entry;
+      let suppliedTs = e.timestamp;
+      if (!suppliedTs || typeof suppliedTs !== 'number') suppliedTs = Date.now();
+      if (suppliedTs < 1e12) suppliedTs *= 1000; // seconds -> ms
+      const msg = originalMessage.toLowerCase();
+      const hasExplicitDate = /(\b(19|20)\d{2}\b)|([0-3]?\d[\/-][0-3]?\d[\/-](?:\d{2,4}))/i.test(originalMessage);
+      const relTokens = {
+        yesterday: -1,
+        'last night': -1,
+        today: 0,
+        tonight: 0,
+        morning: 0,
+        'this morning': 0,
+        'this evening': 0,
+        evening: 0
+      } as Record<string, number>;
+      let matchedKey: string | null = null;
+      for (const k of Object.keys(relTokens)) { if (msg.includes(k)) { matchedKey = k; break; } }
+      const now = new Date();
+      const nowMs = now.getTime();
+      const diffAbsDays = Math.abs(nowMs - suppliedTs) / 86400000;
+      let finalTs = suppliedTs;
+      if (!hasExplicitDate && matchedKey) {
+        // Derive base date offset
+        const dayOffset = relTokens[matchedKey];
+        const base = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
+        // Anchor time by part of day
+        if (/morning/.test(matchedKey)) base.setHours(8, 0, 0, 0);
+        else if (/evening|tonight/.test(matchedKey)) base.setHours(19, 0, 0, 0);
+        else if (/last night/.test(matchedKey)) base.setHours(22, 0, 0, 0);
+        else base.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), 0);
+        finalTs = base.getTime();
+      }
+      // If model produced wildly off date (>3 days away) for a relative message, override
+      if (matchedKey && diffAbsDays > 3) finalTs = Date.now();
+      e.timestamp = finalTs;
+      interpretation.entry.timestamp = finalTs;
+    }
+  } catch (normErr) {
+    if (verbose) logger.debug('normalize: timestamp adjust skipped', { error: String(normErr) });
+  }
   if (interpretation.entry?.type === 'vital') {
     const v = interpretation.entry.vital;
     if (!v || !v.vitalType) {

@@ -24,6 +24,8 @@ class _DataScreenState extends State<DataScreen> {
   static const int _limit = 20;
   String? _error;
   final _horizontalScrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -225,6 +227,37 @@ class _DataScreenState extends State<DataScreen> {
                 ),
               ),
             ]),
+            if (_selectedTable != null) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search…',
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () {
+                            setState(() {
+                              _searchQuery = '';
+                              _searchController.clear();
+                            });
+                          },
+                        )
+                      : null,
+                ),
+                onChanged: (val) {
+                  setState(() {
+                    _searchQuery = val.trim();
+                  });
+                },
+              ),
+            ],
             const SizedBox(height: 12),
             if (_error != null)
               Text(
@@ -303,25 +336,28 @@ class _DataScreenState extends State<DataScreen> {
                                       ),
                                     ),
                                     const Spacer(),
-                                    Text(
-                                      '${_rows.length} records',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: const Color(0xFF1565C0).withOpacity(0.7),
-                                      ),
-                                    ),
+                                    Builder(builder: (_) {
+                                      final filteredCount = _applySearch(_rows).length;
+                                      final total = _rows.length;
+                                      final text = _searchQuery.isEmpty
+                                          ? '$total records'
+                                          : '$filteredCount / $total';
+                                      return Text(
+                                        text,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: const Color(0xFF1565C0).withOpacity(0.7),
+                                        ),
+                                      );
+                                    }),
                                   ],
                                 ),
                               ),
                               // Data rows
                               Expanded(
-                                child: ListView.builder(
+                                child: ListView(
                                   padding: const EdgeInsets.all(8),
-                                  itemCount: _rows.length,
-                                  itemBuilder: (context, index) {
-                                    final row = _rows[index];
-                                    return _buildDataCard(row, index, context);
-                                  },
+                                  children: _buildGroupedList(context),
                                 ),
                               ),
                             ],
@@ -352,6 +388,8 @@ class _DataScreenState extends State<DataScreen> {
 
   Widget _buildDataCard(Map<String, dynamic> row, int index, BuildContext context) {
     final theme = Theme.of(context);
+  final createdBy = row['created_by']?.toString();
+  final createdTime = _formatTimestamp(row);
     
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -375,35 +413,157 @@ class _DataScreenState extends State<DataScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Primary content row
           _buildPrimaryContent(row, theme),
-          if (_getSecondaryFields(row).isNotEmpty) ...[
-            const SizedBox(height: 8),
-            // Secondary content in a compact grid
-            _buildSecondaryContent(row, theme),
-          ],
-          // Timestamp at bottom right
           const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Text(
-                _formatTimestamp(row),
-                style: TextStyle(
-                  fontSize: 10,
-                  color: theme.colorScheme.onSurface.withOpacity(0.5),
-                ),
-              ),
-            ],
-          ),
+          _buildMetaRow(row, theme),
+          const SizedBox(height: 6),
+          // Footer line (created_by  |  timestamp)
+          if (createdBy != null || createdTime.isNotEmpty)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                if (createdBy != null)
+                  Flexible(
+                    child: Text(
+                      createdBy,
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: theme.colorScheme.onSurface.withOpacity(0.45),
+                        fontStyle: FontStyle.italic,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  )
+                else
+                  const SizedBox.shrink(),
+                if (createdTime.isNotEmpty)
+                  Text(
+                    createdTime,
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: theme.colorScheme.onSurface.withOpacity(0.45),
+                    ),
+                  ),
+              ],
+            ),
         ],
       ),
     );
   }
 
+  List<Widget> _buildGroupedList(BuildContext context) {
+  final theme = Theme.of(context);
+  // Filter
+  final source = _applySearch(_rows);
+  // Sort rows by created_at / timestamp descending
+  final sorted = [...source];
+    sorted.sort((a, b) {
+      final ad = _extractCreatedAt(a);
+      final bd = _extractCreatedAt(b);
+      if (ad == null && bd == null) return 0;
+      if (ad == null) return 1;
+      if (bd == null) return -1;
+      return bd.compareTo(ad); // descending
+    });
+
+    final widgets = <Widget>[];
+    DateTime? lastDay;
+    int? lastWeekYearKey; // combine year & week into one int
+
+    for (var i = 0; i < sorted.length; i++) {
+      final row = sorted[i];
+      final created = _extractCreatedAt(row);
+      if (created == null) {
+        widgets.add(_buildDataCard(row, i, context));
+        continue;
+      }
+      final day = DateTime(created.year, created.month, created.day);
+      final weekKey = created.year * 100 + _weekNumber(created);
+      if (weekKey != lastWeekYearKey) {
+        // Week header
+        final start = _startOfWeek(created);
+        final end = start.add(const Duration(days: 6));
+        widgets.add(_WeekHeader(
+          label:
+              'Week of ${_fmtDate(start)} - ${_fmtDate(end)}',
+        ));
+        lastWeekYearKey = weekKey;
+      }
+      final isFirstOfDay = lastDay == null || day.isAfter(lastDay!);
+      if (isFirstOfDay) {
+        widgets.add(_DayHeaderAndCard(
+          day: day,
+          child: _buildDataCard(row, i, context),
+        ));
+      } else {
+        widgets.add(_DaySpacerAndCard(child: _buildDataCard(row, i, context)));
+      }
+      lastDay = day;
+    }
+    return widgets;
+  }
+
+  List<Map<String, dynamic>> _applySearch(List<Map<String, dynamic>> input) {
+    if (_searchQuery.isEmpty) return input;
+    final q = _searchQuery.toLowerCase();
+    return input.where((row) {
+      for (final key in row.keys) {
+        if (_isKeyField(key)) continue;
+        final lk = key.toLowerCase();
+        if (lk == 'created_by' || lk.startsWith('created_') || lk.startsWith('updated_')) continue;
+        if (lk.endsWith('_at') || lk.contains('date') || lk.contains('time')) continue;
+        final value = row[key];
+        if (value == null) continue;
+        final vs = value.toString().toLowerCase();
+        if (vs.contains(q)) return true;
+      }
+      return false;
+    }).toList();
+  }
+
+  DateTime? _extractCreatedAt(Map<String, dynamic> row) {
+    final fields = ['created_at', 'timestamp', 'upload_date'];
+    for (final f in fields) {
+      final v = row[f];
+      if (v == null) continue;
+      try {
+        if (v is int) {
+          // heuristics: if seconds vs ms
+            if (v.toString().length <= 10) {
+              return DateTime.fromMillisecondsSinceEpoch(v * 1000, isUtc: true).toLocal();
+            }
+          return DateTime.fromMillisecondsSinceEpoch(v, isUtc: true).toLocal();
+        } else if (v is String) {
+          return DateTime.parse(v).toLocal();
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  int _weekNumber(DateTime date) {
+    // ISO week number calculation
+    final thursday = date.add(Duration(days: 3 - ((date.weekday + 6) % 7)));
+    final firstThursday = DateTime(thursday.year, 1, 4);
+    final diff = thursday.difference(firstThursday);
+    return 1 + (diff.inDays / 7).floor();
+  }
+
+  DateTime _startOfWeek(DateTime date) {
+    final weekday = date.weekday; // 1=Mon
+    return DateTime(date.year, date.month, date.day).subtract(Duration(days: weekday - 1));
+  }
+
+  String _fmtDate(DateTime d) {
+    final day = d.day.toString().padLeft(2, '0');
+    final month = d.month.toString().padLeft(2, '0');
+    final year = d.year.toString();
+    return '$month/$day/$year';
+  }
+
   Widget _buildPrimaryContent(Map<String, dynamic> row, ThemeData theme) {
     final primaryField = _getPrimaryField(row);
-    final primaryValue = row[primaryField]?.toString() ?? '';
+    final primaryValue = _cleanValue(row[primaryField]);
     
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -427,26 +587,31 @@ class _DataScreenState extends State<DataScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                primaryField.toUpperCase().replaceAll('_', ' '),
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: theme.colorScheme.onSurface.withOpacity(0.6),
-                  letterSpacing: 0.5,
-                ),
+              Row(
+                children: [
+                  Text(
+                    primaryField.toUpperCase().replaceAll('_', ' '),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface.withOpacity(0.55),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
                 primaryValue.isEmpty ? '—' : primaryValue,
                 style: TextStyle(
-                  fontSize: 13,
-                  color: primaryValue.isEmpty 
-                    ? theme.colorScheme.onSurface.withOpacity(0.4)
-                    : theme.colorScheme.onSurface,
-                  height: 1.3,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: primaryValue.isEmpty
+                      ? theme.colorScheme.onSurface.withOpacity(0.35)
+                      : theme.colorScheme.onSurface,
+                  height: 1.25,
                 ),
-                maxLines: 3,
+                maxLines: 2, // limit to 2 lines for compactness
                 overflow: TextOverflow.ellipsis,
               ),
             ],
@@ -456,77 +621,110 @@ class _DataScreenState extends State<DataScreen> {
     );
   }
 
-  Widget _buildSecondaryContent(Map<String, dynamic> row, ThemeData theme) {
-    final secondaryFields = _getSecondaryFields(row);
-    
-    return Wrap(
-      spacing: 12,
-      runSpacing: 6,
-      children: secondaryFields.map((field) {
-        final value = row[field]?.toString() ?? '';
-        if (value.isEmpty) return const SizedBox.shrink();
-        
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '${field.replaceAll('_', ' ').toUpperCase()}:',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w500,
-                  color: theme.colorScheme.onSurface.withOpacity(0.6),
+  Widget _buildMetaRow(Map<String, dynamic> row, ThemeData theme) {
+    final fields = _getSecondaryFields(row);
+    if (fields.isEmpty) return const SizedBox.shrink();
+
+    // Horizontal chips to keep height small
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: fields.map((f) {
+          final value = _cleanValue(row[f]);
+          if (value.isEmpty) return const SizedBox.shrink();
+          return Container(
+            margin: const EdgeInsets.only(right: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.55),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  f.replaceAll('_', ' ').toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface.withOpacity(0.55),
+                    letterSpacing: 0.3,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
+                const SizedBox(width: 4),
+                Text(
                   value,
                   style: TextStyle(
                     fontSize: 10,
-                    color: theme.colorScheme.onSurface.withOpacity(0.8),
+                    color: theme.colorScheme.onSurface.withOpacity(0.85),
                   ),
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
   String _getPrimaryField(Map<String, dynamic> row) {
-    // Determine the most important field to display prominently
-    final priorityFields = ['content', 'name', 'title', 'description', 'value', 'type'];
-    for (final field in priorityFields) {
-      if (row.containsKey(field) && row[field]?.toString().isNotEmpty == true) {
-        return field;
-      }
+    final priorityFields = [
+      'content',
+      'value',
+      'name',
+      'title',
+      'description',
+      'dose',
+      'amount',
+      'quantity',
+      'message'
+    ];
+    for (final f in priorityFields) {
+      if (row.containsKey(f) && !_isKeyField(f) && _cleanValue(row[f]).isNotEmpty) return f;
     }
-    // Fallback to first non-empty field
-    return row.keys.firstWhere(
-      (key) => row[key]?.toString().isNotEmpty == true,
-      orElse: () => row.keys.first,
-    );
+    // fallback: first non-empty, non key, non timestamp
+    final skip = {'created_by'};
+    final ts = {'created_at', 'timestamp', 'upload_date'};
+    for (final k in row.keys) {
+      if (_isKeyField(k) || ts.contains(k) || skip.contains(k)) continue;
+      if (_cleanValue(row[k]).isNotEmpty) return k;
+    }
+    return row.keys.first; // last resort
   }
 
   List<String> _getSecondaryFields(Map<String, dynamic> row) {
     final primaryField = _getPrimaryField(row);
-    final timestampFields = ['created_at', 'timestamp', 'upload_date'];
-    
-    return row.keys
-        .where((key) => 
-          key != primaryField && 
-          !timestampFields.contains(key) &&
-          row[key]?.toString().isNotEmpty == true)
-        .take(6) // Limit to 6 secondary fields
-        .toList();
+    final timestampFields = {'created_at', 'timestamp', 'upload_date'};
+    final suppressed = {'created_by'}; // shown separately
+    final metaPriority = [
+      'type',
+      'category',
+      'unit',
+      'status',
+      'role',
+      'frequency',
+      'schedule',
+      'profile',
+    ];
+
+    bool include(String k) =>
+        k != primaryField &&
+        !timestampFields.contains(k) &&
+        !suppressed.contains(k) &&
+        !_isKeyField(k) &&
+        _cleanValue(row[k]).isNotEmpty;
+
+    final ordered = <String>[];
+    for (final p in metaPriority) {
+      if (row.containsKey(p) && include(p)) ordered.add(p);
+    }
+    // add any remaining fields (still respecting filter)
+    for (final k in row.keys) {
+      if (!ordered.contains(k) && include(k)) ordered.add(k);
+    }
+    return ordered.take(5).toList(); // keep compact
   }
 
   IconData _getIconForField(String field) {
@@ -581,9 +779,22 @@ class _DataScreenState extends State<DataScreen> {
     return '';
   }
 
+  bool _isKeyField(String field) {
+    final f = field.toLowerCase();
+    return f == 'id' ||
+        f == 'rowid' ||
+        f.endsWith('_id') ||
+        f == 'user_id' ||
+        f == 'profile_id';
+  }
+
+  String _cleanValue(dynamic v) {
+    if (v == null) return '';
+    final s = v.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+    return s;
+  }
   Widget _buildPager() {
-    final totalPages =
-        (_total / _limit).ceil().clamp(1, 9999);
+    final totalPages = (_total / _limit).ceil().clamp(1, 9999);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
@@ -611,7 +822,7 @@ class _DataScreenState extends State<DataScreen> {
                 : null,
             tooltip: 'Previous page',
           ),
-          IconButton(
+            IconButton(
             icon: const Icon(Icons.chevron_right),
             onPressed: _page < totalPages && !_loading
                 ? () => _fetchRows(page: _page + 1)
@@ -622,4 +833,122 @@ class _DataScreenState extends State<DataScreen> {
       ),
     );
   }
-} // End of file
+} // end _DataScreenState
+
+class _WeekHeader extends StatelessWidget {
+  final String label;
+  const _WeekHeader({required this.label});
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Divider(
+              color: theme.colorScheme.outline.withOpacity(0.25),
+              thickness: 1,
+              endIndent: 8,
+            ),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.primary,
+              letterSpacing: 0.4,
+            ),
+          ),
+          Expanded(
+            child: Divider(
+              color: theme.colorScheme.outline.withOpacity(0.25),
+              thickness: 1,
+              indent: 8,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DayHeaderAndCard extends StatelessWidget {
+  final DateTime day;
+  final Widget child;
+  const _DayHeaderAndCard({required this.day, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final weekday = _weekdayShort(day.weekday);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 50,
+          child: Column(
+            children: [
+              Text(
+                weekday,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface.withOpacity(0.6),
+                  letterSpacing: 0.5,
+                ),
+              ),
+              Text(
+                day.day.toString(),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: theme.colorScheme.onSurface.withOpacity(0.85),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
+class _DaySpacerAndCard extends StatelessWidget {
+  final Widget child;
+  const _DaySpacerAndCard({required this.child});
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(width: 50),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
+String _weekdayShort(int weekday) {
+  switch (weekday) {
+    case DateTime.monday:
+      return 'MON';
+    case DateTime.tuesday:
+      return 'TUE';
+    case DateTime.wednesday:
+      return 'WED';
+    case DateTime.thursday:
+      return 'THU';
+    case DateTime.friday:
+      return 'FRI';
+    case DateTime.saturday:
+      return 'SAT';
+    case DateTime.sunday:
+      return 'SUN';
+    default:
+      return '';
+  }
+}
+// End of file
