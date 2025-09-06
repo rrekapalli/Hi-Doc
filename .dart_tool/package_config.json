@@ -860,6 +860,12 @@
       "languageVersion": "3.5"
     },
     {
+      "name": "simple_gesture_detector",
+      "rootUri": "file:///home/raja/.pub-cache/hosted/pub.dev/simple_gesture_detector-0.2.1",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
       "name": "sky_engine",
       "rootUri": "file:///home/raja/snap/flutter/common/flutter/bin/cache/pkg/sky_engine",
       "packageUri": "lib/",
@@ -966,6 +972,12 @@
       "rootUri": "file:///home/raja/.pub-cache/hosted/pub.dev/synchronized-3.4.0",
       "packageUri": "lib/",
       "languageVersion": "3.8"
+    },
+    {
+      "name": "table_calendar",
+      "rootUri": "file:///home/raja/.pub-cache/hosted/pub.dev/table_calendar-3.2.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
     },
     {
       "name": "term_glyph",

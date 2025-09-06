@@ -39,6 +39,21 @@ class ActivitiesProvider with ChangeNotifier {
     }
   }
 
+  Future<Activity?> addActivity(Activity draft) async {
+    try {
+      final created = await _service.createActivity(draft);
+      if (created != null) {
+        _all.add(created);
+        notifyListeners();
+      }
+      return created;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
   void _onProfileChanged() {
     // Just notify listeners so UI re-filters list
     notifyListeners();
