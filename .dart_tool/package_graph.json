@@ -33,6 +33,7 @@
         "shared_preferences",
         "sqflite",
         "sqflite_common_ffi_web",
+        "table_calendar",
         "timeago",
         "timezone",
         "uuid"
@@ -1000,20 +1001,20 @@
       ]
     },
     {
-      "name": "permission_handler_windows",
-      "version": "0.2.1",
-      "dependencies": [
-        "flutter",
-        "permission_handler_platform_interface"
-      ]
-    },
-    {
       "name": "permission_handler_platform_interface",
       "version": "4.3.0",
       "dependencies": [
         "flutter",
         "meta",
         "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "permission_handler_windows",
+      "version": "0.2.1",
+      "dependencies": [
+        "flutter",
+        "permission_handler_platform_interface"
       ]
     },
     {
@@ -1029,6 +1030,14 @@
     {
       "name": "permission_handler_apple",
       "version": "9.4.7",
+      "dependencies": [
+        "flutter",
+        "permission_handler_platform_interface"
+      ]
+    },
+    {
+      "name": "permission_handler_android",
+      "version": "13.0.1",
       "dependencies": [
         "flutter",
         "permission_handler_platform_interface"
@@ -1388,35 +1397,18 @@
       ]
     },
     {
-      "name": "sqlite3",
-      "version": "2.9.0",
+      "name": "dev_build",
+      "version": "1.1.2+11",
       "dependencies": [
+        "args",
         "collection",
-        "ffi",
         "meta",
         "path",
-        "typed_data",
-        "web"
-      ]
-    },
-    {
-      "name": "sqflite_common_ffi",
-      "version": "2.3.6",
-      "dependencies": [
-        "meta",
-        "path",
-        "sqflite_common",
-        "sqlite3",
-        "synchronized"
-      ]
-    },
-    {
-      "name": "sqflite_common",
-      "version": "2.5.6",
-      "dependencies": [
-        "meta",
-        "path",
-        "synchronized"
+        "pool",
+        "process_run",
+        "pub_semver",
+        "synchronized",
+        "yaml"
       ]
     },
     {
@@ -1434,18 +1426,35 @@
       ]
     },
     {
-      "name": "dev_build",
-      "version": "1.1.2+11",
+      "name": "sqlite3",
+      "version": "2.9.0",
       "dependencies": [
-        "args",
         "collection",
+        "ffi",
         "meta",
         "path",
-        "pool",
-        "process_run",
-        "pub_semver",
-        "synchronized",
-        "yaml"
+        "typed_data",
+        "web"
+      ]
+    },
+    {
+      "name": "sqflite_common",
+      "version": "2.5.6",
+      "dependencies": [
+        "meta",
+        "path",
+        "synchronized"
+      ]
+    },
+    {
+      "name": "sqflite_common_ffi",
+      "version": "2.3.6",
+      "dependencies": [
+        "meta",
+        "path",
+        "sqflite_common",
+        "sqlite3",
+        "synchronized"
       ]
     },
     {
@@ -1751,11 +1760,19 @@
       "dependencies": []
     },
     {
-      "name": "permission_handler_android",
-      "version": "13.0.1",
+      "name": "table_calendar",
+      "version": "3.2.0",
       "dependencies": [
         "flutter",
-        "permission_handler_platform_interface"
+        "intl",
+        "simple_gesture_detector"
+      ]
+    },
+    {
+      "name": "simple_gesture_detector",
+      "version": "0.2.1",
+      "dependencies": [
+        "flutter"
       ]
     }
   ],

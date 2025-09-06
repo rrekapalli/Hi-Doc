@@ -37,4 +37,22 @@ class ActivitiesService {
       return [];
     }
   }
+
+  Future<Activity?> createActivity(Activity activity) async {
+    try {
+      final headers = await _getAuthHeaders();
+      final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/activities');
+      final payload = jsonEncode(activity.toJson());
+      final resp = await http.post(uri, headers: headers, body: payload);
+      if (resp.statusCode == 200 || resp.statusCode == 201) {
+        final jsonMap = jsonDecode(resp.body) as Map<String, dynamic>;
+        return Activity.fromJson(jsonMap);
+      }
+      debugPrint('Failed to create activity: ${resp.statusCode} ${resp.body}');
+      return null;
+    } catch (e) {
+      debugPrint('Error creating activity: $e');
+      return null;
+    }
+  }
 }

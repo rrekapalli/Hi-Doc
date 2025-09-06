@@ -1638,6 +1638,42 @@ router.delete('/api/health/:id', (req: Request, res: Response) => {
 });
 
 // Activities CRUD
+const activityCreateSchema = z.object({
+  id: z.string().optional(),
+  profile_id: z.string().optional(),
+  name: z.string().min(1),
+  duration_minutes: z.number().int().optional(),
+  distance_km: z.number().optional(),
+  intensity: z.string().optional(),
+  calories_burned: z.number().optional(),
+  timestamp: z.number().optional(), // epoch ms or seconds
+  notes: z.string().optional(),
+});
+
+router.post('/api/activities', (req: Request, res: Response) => {
+  const p = activityCreateSchema.safeParse(req.body);
+  if (!p.success) return res.status(400).json({ error: p.error.flatten() });
+  const userId = (req as any).userId;
+  const id = p.data.id || randomUUID();
+  const profileId = p.data.profile_id || 'default-profile';
+  let ts = p.data.timestamp ?? Date.now();
+  if (ts < 1e12) ts = ts * 1000; // seconds -> ms
+  db.prepare('INSERT INTO activities (id, user_id, profile_id, name, duration_minutes, distance_km, intensity, calories_burned, timestamp, notes) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(id, userId, profileId, p.data.name, p.data.duration_minutes ?? null, p.data.distance_km ?? null, p.data.intensity ?? null, p.data.calories_burned ?? null, ts, p.data.notes ?? null);
+  res.status(201).json({
+    id,
+    user_id: userId,
+    profile_id: profileId,
+    name: p.data.name,
+    duration_minutes: p.data.duration_minutes ?? null,
+    distance_km: p.data.distance_km ?? null,
+    intensity: p.data.intensity ?? null,
+    calories_burned: p.data.calories_burned ?? null,
+    timestamp: ts,
+    notes: p.data.notes ?? null,
+  });
+});
+
 router.get('/api/activities', (req: Request, res: Response) => {
   const userId = (req as any).userId;
   const limit = Math.min(Number(req.query.limit || 50), 500);
