@@ -30,11 +30,6 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
     }
   }
 
-  List<Activity> _activitiesForDay(DateTime day, List<Activity> all) {
-    return all.where((a) => isSameDay(a.timestamp, day)).toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-  }
-
   Map<DateTime, List<Activity>> _groupByDay(List<Activity> all) {
     final map = <DateTime, List<Activity>>{};
     for (final a in all) {
@@ -97,12 +92,13 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
               Color c;
               if (intensity.contains('high')) {
                 c = Colors.pinkAccent;
-              } else if (intensity.contains('moderate'))
+              } else if (intensity.contains('moderate')) {
                 c = Colors.orangeAccent;
-              else if (intensity.contains('low'))
+              } else if (intensity.contains('low')) {
                 c = Colors.teal;
-              else
+              } else {
                 c = Colors.blueGrey;
+              }
               return Container(
                 width: 6,
                 height: 6,
@@ -180,8 +176,8 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
               return Container(
                 color: Theme.of(context)
                     .colorScheme
-                    .surfaceVariant
-                    .withOpacity(0.4),
+                    .surfaceContainerHighest
+                    .withValues(alpha: 0.4),
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Row(
@@ -237,14 +233,6 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
     );
   }
 
-  String _fmtDate(DateTime d) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final dd = DateTime(d.year, d.month, d.day);
-    if (dd == today) return 'Today';
-    return '${_monthName(d.month)} ${d.day}, ${d.year}';
-  }
-
   String _monthName(int m) => const [
         'Jan',
         'Feb',
@@ -281,7 +269,7 @@ class _ActivityTile extends StatelessWidget {
       subtitleParts.add(activity.intensity!);
     }
     final ts = TimeOfDay.fromDateTime(activity.timestamp);
-    final dateStr = '${ts.format(context)}';
+    final dateStr = ts.format(context);
 
     return ListTile(
       leading: const Icon(Icons.directions_run),

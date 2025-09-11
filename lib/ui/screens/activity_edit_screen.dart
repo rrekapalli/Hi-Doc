@@ -43,13 +43,15 @@ class _ActivityEditScreenState extends State<ActivityEditScreen> {
       lastDate: DateTime(2100),
     );
     if (date == null) return;
+    if (!mounted) return;
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(_dateTime),
     );
     if (time == null) return;
     setState(() {
-      _dateTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _dateTime =
+          DateTime(date.year, date.month, date.day, time.hour, time.minute);
     });
   }
 
@@ -65,10 +67,15 @@ class _ActivityEditScreenState extends State<ActivityEditScreen> {
       profileId: pid,
       name: _nameCtrl.text.trim(),
       timestamp: _dateTime,
-      durationMinutes: _durationCtrl.text.isEmpty ? null : int.tryParse(_durationCtrl.text),
-      distanceKm: _distanceCtrl.text.isEmpty ? null : double.tryParse(_distanceCtrl.text),
+      durationMinutes:
+          _durationCtrl.text.isEmpty ? null : int.tryParse(_durationCtrl.text),
+      distanceKm: _distanceCtrl.text.isEmpty
+          ? null
+          : double.tryParse(_distanceCtrl.text),
       intensity: _intensity,
-      caloriesBurned: _caloriesCtrl.text.isEmpty ? null : double.tryParse(_caloriesCtrl.text),
+      caloriesBurned: _caloriesCtrl.text.isEmpty
+          ? null
+          : double.tryParse(_caloriesCtrl.text),
       notes: _notesCtrl.text.isEmpty ? null : _notesCtrl.text.trim(),
     );
 
@@ -79,9 +86,11 @@ class _ActivityEditScreenState extends State<ActivityEditScreen> {
     setState(() => _saving = false);
     if (created != null) {
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Activity added')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Activity added')));
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to add activity')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to add activity')));
     }
   }
 
@@ -98,13 +107,16 @@ class _ActivityEditScreenState extends State<ActivityEditScreen> {
               TextFormField(
                 controller: _nameCtrl,
                 decoration: const InputDecoration(labelText: 'Name'),
-                validator: (v) => (v==null || v.trim().isEmpty) ? 'Required' : null,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
-                    child: Text('Date & Time:\n${_dateTime.toLocal()}'.split('.').first),
+                    child: Text('Date & Time:\n${_dateTime.toLocal()}'
+                        .split('.')
+                        .first),
                   ),
                   TextButton.icon(
                     onPressed: _pickDateTime,
@@ -123,11 +135,12 @@ class _ActivityEditScreenState extends State<ActivityEditScreen> {
               TextFormField(
                 controller: _distanceCtrl,
                 decoration: const InputDecoration(labelText: 'Distance (km)'),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _intensity,
+                initialValue: _intensity,
                 decoration: const InputDecoration(labelText: 'Intensity'),
                 items: const [
                   DropdownMenuItem(value: 'Low', child: Text('Low')),
@@ -140,7 +153,8 @@ class _ActivityEditScreenState extends State<ActivityEditScreen> {
               TextFormField(
                 controller: _caloriesCtrl,
                 decoration: const InputDecoration(labelText: 'Calories'),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -151,7 +165,12 @@ class _ActivityEditScreenState extends State<ActivityEditScreen> {
               const SizedBox(height: 24),
               FilledButton.icon(
                 onPressed: _saving ? null : _save,
-                icon: _saving ? const SizedBox(width:16,height:16,child: CircularProgressIndicator(strokeWidth:2)) : const Icon(Icons.check),
+                icon: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.check),
                 label: const Text('Save Activity'),
               ),
             ],
