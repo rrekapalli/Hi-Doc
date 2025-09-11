@@ -302,6 +302,12 @@
       "languageVersion": "3.3"
     },
     {
+      "name": "flutter_html",
+      "rootUri": "file:///home/raja/.pub-cache/hosted/pub.dev/flutter_html-3.0.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.2"
+    },
+    {
       "name": "flutter_launcher_icons",
       "rootUri": "file:///home/raja/.pub-cache/hosted/pub.dev/flutter_launcher_icons-0.14.4",
       "packageUri": "lib/",
@@ -546,6 +552,12 @@
       "rootUri": "file:///home/raja/.pub-cache/hosted/pub.dev/lints-6.0.0",
       "packageUri": "lib/",
       "languageVersion": "3.8"
+    },
+    {
+      "name": "list_counter",
+      "rootUri": "file:///home/raja/.pub-cache/hosted/pub.dev/list_counter-1.0.2",
+      "packageUri": "lib/",
+      "languageVersion": "2.18"
     },
     {
       "name": "logging",

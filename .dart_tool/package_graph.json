@@ -16,6 +16,7 @@
         "fl_chart",
         "flutter",
         "flutter_appauth",
+        "flutter_html",
         "flutter_local_notifications",
         "flutter_pdfview",
         "google_sign_in",
@@ -166,6 +167,17 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "flutter_html",
+      "version": "3.0.0",
+      "dependencies": [
+        "collection",
+        "csslib",
+        "flutter",
+        "html",
+        "list_counter"
       ]
     },
     {
@@ -899,6 +911,18 @@
       ]
     },
     {
+      "name": "list_counter",
+      "version": "1.0.2",
+      "dependencies": []
+    },
+    {
+      "name": "csslib",
+      "version": "1.0.2",
+      "dependencies": [
+        "source_span"
+      ]
+    },
+    {
       "name": "web",
       "version": "1.1.1",
       "dependencies": []
@@ -1496,13 +1520,6 @@
         "crypto",
         "path",
         "posix"
-      ]
-    },
-    {
-      "name": "csslib",
-      "version": "1.0.2",
-      "dependencies": [
-        "source_span"
       ]
     },
     {
