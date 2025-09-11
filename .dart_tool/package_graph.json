@@ -428,6 +428,15 @@
       ]
     },
     {
+      "name": "table_calendar",
+      "version": "3.2.0",
+      "dependencies": [
+        "flutter",
+        "intl",
+        "simple_gesture_detector"
+      ]
+    },
+    {
       "name": "intl",
       "version": "0.20.2",
       "dependencies": [
@@ -1490,6 +1499,13 @@
       ]
     },
     {
+      "name": "simple_gesture_detector",
+      "version": "0.2.1",
+      "dependencies": [
+        "flutter"
+      ]
+    },
+    {
       "name": "nested",
       "version": "1.0.0",
       "dependencies": [
@@ -1758,22 +1774,6 @@
       "name": "vm_service",
       "version": "15.0.2",
       "dependencies": []
-    },
-    {
-      "name": "table_calendar",
-      "version": "3.2.0",
-      "dependencies": [
-        "flutter",
-        "intl",
-        "simple_gesture_detector"
-      ]
-    },
-    {
-      "name": "simple_gesture_detector",
-      "version": "0.2.1",
-      "dependencies": [
-        "flutter"
-      ]
     }
   ],
   "configVersion": 1
