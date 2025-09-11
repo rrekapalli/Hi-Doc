@@ -3,7 +3,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter_appauth/flutter_appauth.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+// import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../config/app_config.dart';
@@ -15,18 +16,49 @@ class AuthService {
   // Google Sign-In temporarily disabled due to API mismatch; re-enable after stabilizing dependency.
   // GoogleSignIn? _googleSignIn;
   final FlutterAppAuth _appAuth = const FlutterAppAuth();
-  final FlutterSecureStorage _secure = const FlutterSecureStorage();
+  // Use SharedPreferences for desktop platforms where secure storage has compilation issues
+  SharedPreferences? _prefs;
 
-  AuthService() : _auth = kIsWeb ? null : FirebaseAuth.instance;
+  AuthService() : _auth = kIsWeb ? null : _initFirebaseAuth();
 
-  Stream<User?> authStateChanges() => _auth?.authStateChanges() ?? const Stream<User?>.empty();
+  static FirebaseAuth? _initFirebaseAuth() {
+    try {
+      // Check if Firebase is already initialized
+      Firebase.app();
+      return FirebaseAuth.instance;
+    } catch (e) {
+      // Firebase not initialized on this platform
+      if (kDebugMode) {
+        print('Firebase not available on this platform: $e');
+      }
+      return null;
+    }
+  }
+
+  Stream<User?> authStateChanges() =>
+      _auth?.authStateChanges() ?? const Stream<User?>.empty();
 
   User? get currentUser => _auth?.currentUser;
+
+  // Platform-aware storage methods
+  Future<void> _initPrefs() async {
+    _prefs ??= await SharedPreferences.getInstance();
+  }
+
+  Future<void> _writeSecure(String key, String value) async {
+    await _initPrefs();
+    await _prefs!.setString(key, value);
+  }
+
+  Future<String?> _readSecure(String key) async {
+    await _initPrefs();
+    return _prefs!.getString(key);
+  }
 
   Future<String?> getIdToken() async {
     if (kDebugMode || kIsWeb) {
       // For dev and web, use a test token
-  return 'dev_test_token_prototype-user';
+      return 'dev_test_token_prototype-user';
     } else {
       // For mobile prod, get the token from Firebase
       return await _auth?.currentUser?.getIdToken();
@@ -44,14 +76,22 @@ class AuthService {
     }
   }
 
-  Future<UserCredential> signInWithGoogle() async => throw Exception('Google Sign-In temporarily disabled');
+  Future<UserCredential> signInWithGoogle() async =>
+      throw Exception('Google Sign-In temporarily disabled');
 
   // Microsoft sign-in via Azure AD (App Registration) - configure values below.
   // Provide these via constructor or env in production.
   final String msClientId = 'YOUR_MICROSOFT_APP_CLIENT_ID';
-  final String msTenant = 'common'; // or organizations / consumers or specific tenant id
+  final String msTenant =
+      'common'; // or organizations / consumers or specific tenant id
   final String msRedirectUri = 'com.example.app://auth'; // match app's manifest
-  final List<String> msScopes = const ['openid', 'profile', 'email', 'User.Read', 'offline_access'];
+  final List<String> msScopes = const [
+    'openid',
+    'profile',
+    'email',
+    'User.Read',
+    'offline_access',
+  ];
 
   Future<UserCredential> signInWithMicrosoft() async {
     // 1. Use AppAuth to perform interactive auth
@@ -62,7 +102,8 @@ class AuthService {
       AuthorizationTokenRequest(
         msClientId,
         msRedirectUri,
-        discoveryUrl: 'https://login.microsoftonline.com/$msTenant/v2.0/.well-known/openid-configuration',
+        discoveryUrl:
+            'https://login.microsoftonline.com/$msTenant/v2.0/.well-known/openid-configuration',
         scopes: msScopes,
         promptValues: ['login'],
       ),
@@ -70,7 +111,7 @@ class AuthService {
 
     // 2. Store refresh token securely for future Graph API / sync operations
     if (result.refreshToken != null) {
-      await _secure.write(key: 'ms_refresh_token', value: result.refreshToken);
+      await _writeSecure('ms_refresh_token', result.refreshToken!);
     }
 
     // 3. Exchange Microsoft id token and access token with backend for Firebase custom token
@@ -79,22 +120,26 @@ class AuthService {
     if (idToken == null || accessToken == null) {
       throw Exception('Missing Microsoft tokens');
     }
-    final resp = await http.post(AppConfig.microsoftExchangeUri(),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'id_token': idToken, 'access_token': accessToken}));
+    final resp = await http.post(
+      AppConfig.microsoftExchangeUri(),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'id_token': idToken, 'access_token': accessToken}),
+    );
     if (resp.statusCode != 200) {
-      throw Exception('Microsoft exchange failed: ${resp.statusCode} ${resp.body}');
+      throw Exception(
+        'Microsoft exchange failed: ${resp.statusCode} ${resp.body}',
+      );
     }
     final body = jsonDecode(resp.body) as Map<String, dynamic>;
     final customToken = body['firebase_custom_token'] as String?;
     if (customToken == null) {
       throw Exception('No firebase_custom_token in response');
     }
-  return _auth.signInWithCustomToken(customToken);
+    return _auth.signInWithCustomToken(customToken);
   }
 
   Future<void> signOut() async {
     if (_auth == null) return;
-  await _auth.signOut();
+    await _auth.signOut();
   }
 }

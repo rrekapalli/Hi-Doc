@@ -34,6 +34,21 @@
       "isBackground": true,
       "problemMatcher": []
     },
-    
+    {
+      "label": "flutter run (linux)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["run", "-d", "linux"],
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "flutter build (linux)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["build", "linux", "--debug"],
+      "group": "build",
+      "problemMatcher": []
+    }
   ]
 }
