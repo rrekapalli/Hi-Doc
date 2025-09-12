@@ -8,7 +8,7 @@ import '../services/reports_service.dart';
 class ReportsProvider with ChangeNotifier {
   final ReportsService _reportsService = ReportsService();
   static const _uuid = Uuid();
-  
+
   List<Report> _reports = [];
   bool _isLoading = false;
   String? _error;
@@ -20,10 +20,10 @@ class ReportsProvider with ChangeNotifier {
   /// Load reports for the current user
   Future<void> loadReports(String userId) async {
     if (_isLoading) return; // Prevent multiple simultaneous loads
-    
+
     _setLoading(true);
     _error = null;
-    
+
     try {
       _reports = await _reportsService.getUserReports(userId);
       if (kDebugMode) {
@@ -44,21 +44,21 @@ class ReportsProvider with ChangeNotifier {
     required String userId,
     required String filePath,
     required ReportSource source,
-  String? profileId,
+    String? profileId,
     String? aiSummary,
     String? originalFileName,
   }) async {
     _error = null;
-    
+
     try {
       // Determine file type from file path
       final fileType = _getFileTypeFromPath(filePath);
-      
+
       // Create Report object
       final report = Report(
         id: _generateId(),
         userId: userId,
-  profileId: profileId,
+        profileId: profileId,
         filePath: filePath,
         fileType: fileType,
         source: source,
@@ -67,10 +67,10 @@ class ReportsProvider with ChangeNotifier {
         parsed: false,
         originalFileName: originalFileName,
       );
-      
+
       // Create report on backend
       final createdReport = await _reportsService.createReport(report);
-      
+
       _reports.insert(0, createdReport); // Add to beginning of list
       notifyListeners();
       return createdReport;
@@ -89,21 +89,21 @@ class ReportsProvider with ChangeNotifier {
     required File file,
     required String userId,
     required ReportSource source,
-  String? profileId,
+    String? profileId,
     String? aiSummary,
   }) async {
     _error = null;
-    
+
     try {
       // Upload file directly to backend
       final createdReport = await _reportsService.uploadReportFile(
         file: file,
         userId: userId,
         source: source,
-  profileId: profileId,
+        profileId: profileId,
         aiSummary: aiSummary,
+        autoParseAfterUpload: true, // Enable auto-parsing by default
       );
-      
       _reports.insert(0, createdReport); // Add to beginning of list
       notifyListeners();
       return createdReport;
@@ -123,11 +123,11 @@ class ReportsProvider with ChangeNotifier {
     required String fileName,
     required String userId,
     required ReportSource source,
-  String? profileId,
+    String? profileId,
     String? aiSummary,
   }) async {
     _error = null;
-    
+
     try {
       // Upload file bytes directly to backend
       final createdReport = await _reportsService.uploadReportBytes(
@@ -135,10 +135,10 @@ class ReportsProvider with ChangeNotifier {
         fileName: fileName,
         userId: userId,
         source: source,
-  profileId: profileId,
+        profileId: profileId,
         aiSummary: aiSummary,
+        autoParseAfterUpload: true, // Enable auto-parsing by default
       );
-      
       _reports.insert(0, createdReport); // Add to beginning of list
       notifyListeners();
       return createdReport;
@@ -155,7 +155,7 @@ class ReportsProvider with ChangeNotifier {
   /// Remove a report
   Future<bool> removeReport(String reportId) async {
     _error = null;
-    
+
     try {
       final success = await _reportsService.deleteReport(reportId);
       if (success) {
@@ -180,9 +180,12 @@ class ReportsProvider with ChangeNotifier {
   /// Update a report's AI summary
   Future<bool> updateReportSummary(String reportId, String aiSummary) async {
     _error = null;
-    
+
     try {
-      final success = await _reportsService.updateAiSummary(reportId, aiSummary);
+      final success = await _reportsService.updateAiSummary(
+        reportId,
+        aiSummary,
+      );
       if (success) {
         final index = _reports.indexWhere((report) => report.id == reportId);
         if (index != -1) {
@@ -206,7 +209,7 @@ class ReportsProvider with ChangeNotifier {
   /// Mark a report as parsed
   Future<bool> markReportAsParsed(String reportId) async {
     _error = null;
-    
+
     try {
       final success = await _reportsService.markAsParsed(reportId);
       if (success) {
@@ -268,12 +271,12 @@ class ReportsProvider with ChangeNotifier {
     _isLoading = loading;
     notifyListeners();
   }
-  
+
   /// Generate a unique ID for a new report
   String _generateId() {
     return _uuid.v4();
   }
-  
+
   /// Determine file type from file path extension
   ReportFileType _getFileTypeFromPath(String filePath) {
     final extension = path.extension(filePath).toLowerCase();

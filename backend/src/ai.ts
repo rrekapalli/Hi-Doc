@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import { logger } from './logger.js';
-import { readFileSync } from 'fs';
+import { readFileSync, promises as fs } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
+import { randomUUID } from 'crypto';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const { fromPath } = require('pdf2pic');
 
 // Global verbose flag
 const VERBOSE = process.env.AI_VERBOSE === '1' || process.env.VERBOSE === '1';
@@ -58,6 +64,7 @@ let _healthDataEntryPrompt: string | null = null;
 let _healthDataTrendPrompt: string | null = null;
 let _activityDataEntryPrompt: string | null = null;
 let _medicationDataEntryPrompt: string | null = null;
+let _reportsProcessingPrompt: string | null = null;
 
 // Prompt cache for better performance
 const promptCache = new Map<string, string>();
@@ -69,7 +76,8 @@ function initializePrompts(): void {
     'health_data_entry_prompt.txt',
     'health_data_trend_prompt.txt',
     'activity_data_entry_prompt.txt',
-    'medication_data_entry_prompt.txt'
+    'medication_data_entry_prompt.txt',
+    'reports_processing_prompt.txt'
   ];
 
   for (const promptFile of prompts) {
@@ -120,6 +128,17 @@ function getMedicationDataEntryPrompt(): string {
     }
   }
   return _medicationDataEntryPrompt;
+}
+
+// Load reports processing prompt from cache
+function getReportsProcessingPrompt(): string {
+  if (!_reportsProcessingPrompt) {
+    _reportsProcessingPrompt = promptCache.get('reports_processing_prompt.txt') || null;
+    if (!_reportsProcessingPrompt) {
+      throw new Error('Reports processing prompt not found in cache');
+    }
+  }
+  return _reportsProcessingPrompt;
 }
 
 // Load health data entry prompt from file
@@ -292,11 +311,12 @@ Return response in JSON:
 function clearPromptCache(): void {
   _healthDataEntryPrompt = null;
   _healthDataTrendPrompt = null;
+  _reportsProcessingPrompt = null;
   logger.debug('Prompt cache cleared');
 }
 
 // Export functions to get prompts (for use in routes.ts)
-export { getHealthDataEntryPrompt, getHealthDataTrendPrompt, clearPromptCache };
+export { getHealthDataEntryPrompt, getHealthDataTrendPrompt, getReportsProcessingPrompt, clearPromptCache, initializePrompts };
 
 interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string; }
 
@@ -592,8 +612,196 @@ function salvageHeuristic(msg: string): AiInterpretation | null {
   return null;
 }
 
+/**
+ * Process a report file using AI vision/document understanding
+ * @param filePath - Path to the report file (PDF or image)
+ * @param mimeType - MIME type of the file
+ * @returns Parsed health data from the report
+ */
+export async function processReportFile(filePath: string, mimeType: string): Promise<any> {
+  try {
+    logger.info('Processing report file with AI', { filePath, mimeType });
+    
+    const reportsPrompt = getReportsProcessingPrompt();
+    
+    if (mimeType === 'application/pdf') {
+      // Convert PDF to images and process with vision API
+      return await processPdfWithVision(filePath, reportsPrompt);
+    } else if (mimeType.startsWith('image/')) {
+      // Process image directly with vision API
+      return await processImageWithVision(filePath, reportsPrompt);
+    } else {
+      throw new Error(`Unsupported file type: ${mimeType}`);
+    }
+    
+  } catch (error) {
+    logger.error('Error processing report file with AI', { filePath, error });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to process report file: ${errorMessage}`);
+  }
+}
+
+/**
+ * Process PDF by converting to images and using vision API
+ */
+async function processPdfWithVision(filePath: string, reportsPrompt: string): Promise<any> {
+  const tempDir = join(tmpdir(), `pdf-processing-${randomUUID()}`);
+  
+  try {
+    // Create temp directory
+    await fs.mkdir(tempDir, { recursive: true });
+    
+    // Convert PDF to images using pdf2pic
+    const options = {
+      density: 300,           // High quality
+      saveFilename: "page",
+      savePath: tempDir,
+      format: "jpeg",
+      width: 2000,           // High resolution
+      height: 2000
+    };
+    
+    logger.info('Converting PDF to images', { filePath, tempDir });
+    const pdf2picConverter = fromPath(filePath, options);
+    
+    // Convert first few pages (limit to 3 for performance)
+    const convertPromises = [];
+    for (let page = 1; page <= 3; page++) {
+      convertPromises.push(pdf2picConverter(page).catch((err: any) => {
+        logger.warn(`Failed to convert page ${page}`, { error: err });
+        return null;
+      }));
+    }
+    
+    const results = await Promise.all(convertPromises);
+    const validResults = results.filter(r => r !== null);
+    
+    if (validResults.length === 0) {
+      throw new Error('No pages could be converted from PDF');
+    }
+    
+    logger.info('PDF converted to images', { imageCount: validResults.length });
+    
+    // Process each converted page
+    const allImageData = [];
+    for (const result of validResults) {
+      if (result && result.path) {
+        const imageBuffer = await fs.readFile(result.path);
+        const base64Image = imageBuffer.toString('base64');
+        
+        allImageData.push({
+          type: 'image_url',
+          image_url: {
+            url: `data:image/jpeg;base64,${base64Image}`,
+            detail: 'high'
+          }
+        });
+      }
+    }
+    
+    // Create messages for vision API
+    const messages = [
+      {
+        role: 'system' as const,
+        content: reportsPrompt
+      },
+      {
+        role: 'user' as const, 
+        content: [
+          {
+            type: 'text',
+            text: 'Please analyze these medical report pages and extract all health parameters in the specified JSON format. Be thorough and extract every numerical value, test result, and health measurement you can identify.'
+          },
+          ...allImageData
+        ]
+      }
+    ];
+    
+    // Send to ChatGPT with vision
+    const response = await chatGptService.chat(messages, 'gpt-4o');
+    
+    logger.info('Received AI response for PDF processing', { 
+      responseLength: response.length,
+      pagesProcessed: allImageData.length
+    });
+    
+    // Parse response
+    let parsedResponse;
+    try {
+      parsedResponse = extractFirstJsonBlock(response);
+    } catch (parseError) {
+      logger.warn('Failed to parse JSON from AI response, trying direct parse', { 
+        response: response.substring(0, 500) 
+      });
+      parsedResponse = JSON.parse(response);
+    }
+    
+    return parsedResponse;
+    
+  } finally {
+    // Cleanup temp directory
+    try {
+      const files = await fs.readdir(tempDir).catch(() => []);
+      for (const file of files) {
+        await fs.unlink(join(tempDir, file)).catch(() => {});
+      }
+      await fs.rmdir(tempDir).catch(() => {});
+      logger.debug('Cleaned up temp directory', { tempDir });
+    } catch (cleanupError) {
+      logger.warn('Failed to cleanup temp directory', { tempDir, error: cleanupError });
+    }
+  }
+}
+
+/**
+ * Process image file with vision API
+ */
+async function processImageWithVision(filePath: string, reportsPrompt: string): Promise<any> {
+  const imageBuffer = await fs.readFile(filePath);
+  const base64Image = imageBuffer.toString('base64');
+  
+  // Determine image format
+  let imageFormat = 'jpeg';
+  if (filePath.toLowerCase().endsWith('.png')) imageFormat = 'png';
+  if (filePath.toLowerCase().endsWith('.gif')) imageFormat = 'gif';
+  
+  const messages = [
+    {
+      role: 'system' as const,
+      content: reportsPrompt
+    },
+    {
+      role: 'user' as const,
+      content: [
+        {
+          type: 'text', 
+          text: 'Please analyze this medical report image and extract all health parameters in the specified JSON format. Be thorough and extract every numerical value, test result, and health measurement you can identify.'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: `data:image/${imageFormat};base64,${base64Image}`,
+            detail: 'high'
+          }
+        }
+      ]
+    }
+  ];
+  
+  const response = await chatGptService.chat(messages, 'gpt-4o');
+  
+  let parsedResponse;
+  try {
+    parsedResponse = extractFirstJsonBlock(response);
+  } catch (parseError) {
+    logger.warn('Failed to parse JSON from AI response, trying direct parse', { 
+      response: response.substring(0, 500) 
+    });
+    parsedResponse = JSON.parse(response);
+  }
+  
+  return parsedResponse;
+}
+
 // Initialize prompts on module load for better performance
 initializePrompts();
-
-// Export the initialization function for testing
-export { initializePrompts };
