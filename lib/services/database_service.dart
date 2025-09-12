@@ -12,6 +12,7 @@ import '../config/app_config.dart';
 import '../models/health_entry.dart';
 import '../models/message.dart';
 import '../services/auth_service.dart';
+import '../services/http_client_service.dart';
 import 'notification_service.dart';
 
 /// Central persistence layer (SQLite local + backend HTTP helpers)
@@ -40,23 +41,30 @@ class DatabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getProfiles() async {
-    final r = await http.get(
-      Uri.parse('$_backendBaseUrl/api/profiles'),
-      headers: await _getAuthHeaders(),
+    final uri = Uri.parse('$_backendBaseUrl/api/profiles');
+    final headers = await _getAuthHeaders();
+
+    final response = await HttpClientService.get(
+      uri,
+      headers: headers,
+      cache: true,
+      cacheDuration: const Duration(minutes: 2),
     );
-    if (r.statusCode != 200) throw Exception('Failed to load profiles');
-    return List<Map<String, dynamic>>.from(jsonDecode(r.body));
+
+    if (response.statusCode != 200) throw Exception('Failed to load profiles');
+    return List<Map<String, dynamic>>.from(jsonDecode(response.body));
   }
 
   Future<List<Map<String, dynamic>>> getProfileMessages(
     String profileId,
   ) async {
-    final r = await http.get(
-      Uri.parse('$_backendBaseUrl/api/profiles/$profileId/messages'),
-      headers: await _getAuthHeaders(),
-    );
-    if (r.statusCode != 200) throw Exception('Failed to load messages');
-    return List<Map<String, dynamic>>.from(jsonDecode(r.body));
+    final uri = Uri.parse('$_backendBaseUrl/api/profiles/$profileId/messages');
+    final headers = await _getAuthHeaders();
+
+    final response = await HttpClientService.get(uri, headers: headers);
+
+    if (response.statusCode != 200) throw Exception('Failed to load messages');
+    return List<Map<String, dynamic>>.from(jsonDecode(response.body));
   }
 
   Future<String> sendProfileMessage({

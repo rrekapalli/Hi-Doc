@@ -13,7 +13,8 @@ import 'medication_wizard_screen.dart';
 class MedicationsListV2Screen extends StatefulWidget {
   const MedicationsListV2Screen({super.key});
   @override
-  State<MedicationsListV2Screen> createState() => _MedicationsListV2ScreenState();
+  State<MedicationsListV2Screen> createState() =>
+      _MedicationsListV2ScreenState();
 }
 
 class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
@@ -33,7 +34,8 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   // Month + week navigation controllers
   late final PageController _monthPageController; // centers current month
   late final PageController _weekController;
-  static const int _weekCenterPage = 10000; // large number to allow back/forward paging
+  static const int _weekCenterPage =
+      10000; // large number to allow back/forward paging
   int _currentWeekPage = _weekCenterPage;
   late DateTime _weekAnchorMonday; // Monday of the currently centered week
   final List<DateTime> _monthWindow = List.generate(13, (i) {
@@ -43,9 +45,12 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
 
   // --- Month cache (avoid repeated API calls) ---
   String? _cachedMonthKey; // 'yyyy-mm'
-  final Map<String, List<Map<String, dynamic>>> _schedulesByMed = {}; // medId -> schedules
-  final Map<String, List<Map<String, dynamic>>> _timesBySchedule = {}; // scheduleId -> times
-  final Map<String, List<Map<String, dynamic>>> _logsByMed = {}; // medId -> intake logs for cached month
+  final Map<String, List<Map<String, dynamic>>> _schedulesByMed =
+      {}; // medId -> schedules
+  final Map<String, List<Map<String, dynamic>>> _timesBySchedule =
+      {}; // scheduleId -> times
+  final Map<String, List<Map<String, dynamic>>> _logsByMed =
+      {}; // medId -> intake logs for cached month
   Timer? _rebuildDebounce;
   static const _debounceDelay = Duration(milliseconds: 160);
 
@@ -56,7 +61,10 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
       _didInit = true;
       // Defer async load until after first frame to avoid setState/notify during build
       WidgetsBinding.instance.addPostFrameCallback((_) => _init());
-      _monthPageController = PageController(initialPage: 12, viewportFraction: .22); // show neighbors
+      _monthPageController = PageController(
+        initialPage: 12,
+        viewportFraction: .22,
+      ); // show neighbors
       _weekController = PageController(initialPage: _weekCenterPage);
       _weekAnchorMonday = _startOfWeek(_selectedDay);
     }
@@ -84,15 +92,29 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   Future<void> _buildEntries() async {
     if (_buildingEntries) return;
     _buildingEntries = true;
-  final provider = context.read<MedicationsProvider>();
-    final day = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day);
+    final provider = context.read<MedicationsProvider>();
+    final day = DateTime(
+      _selectedDay.year,
+      _selectedDay.month,
+      _selectedDay.day,
+    );
     final midnight = day.millisecondsSinceEpoch;
-    final nextMidnight = midnight + 24*60*60*1000;
-  await _ensureMonthCache(day);
-  final list = _enumerateDayEntries(day, provider.medications, midnight, nextMidnight);
-    list.sort((a,b)=>a.timestamp.compareTo(b.timestamp));
-    final taken = list.where((e)=>e.taken).length;
-    if (mounted) setState(() { _entries = list; _takenCount = taken; _totalCount = list.length; });
+    final nextMidnight = midnight + 24 * 60 * 60 * 1000;
+    await _ensureMonthCache(day);
+    final list = _enumerateDayEntries(
+      day,
+      provider.medications,
+      midnight,
+      nextMidnight,
+    );
+    list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final taken = list.where((e) => e.taken).length;
+    if (mounted)
+      setState(() {
+        _entries = list;
+        _takenCount = taken;
+        _totalCount = list.length;
+      });
     _buildingEntries = false;
     // Update week counts cache for this day
     _weekDayCounts[_dayKey(day)] = _DayCount(taken: taken, total: list.length);
@@ -110,8 +132,8 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   }
 
   void _changeDay(DateTime day) async {
-  await _ensureMonthCache(day);
-  setState(()=>_selectedDay = day);
+    await _ensureMonthCache(day);
+    setState(() => _selectedDay = day);
     await _buildEntries();
   }
 
@@ -125,27 +147,41 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   Future<void> _computeWeekCounts(DateTime weekMonday) async {
     // Avoid recomputing if all 7 present
     if (_weekHasAll(weekMonday)) return;
-    final days = List.generate(7, (i)=> weekMonday.add(Duration(days: i)));
+    final days = List.generate(7, (i) => weekMonday.add(Duration(days: i)));
     for (final d in days) {
       final key = _dayKey(d);
       if (_weekDayCounts.containsKey(key)) continue;
-  final provider = context.read<MedicationsProvider>();
-  final midnight = DateTime(d.year,d.month,d.day).millisecondsSinceEpoch;
-  final nextMidnight = midnight + 24*60*60*1000;
-  await _ensureMonthCache(d);
-  final entries = _enumerateDayEntries(d, provider.medications, midnight, nextMidnight);
-  _weekDayCounts[key] = _DayCount(taken: entries.where((e)=>e.taken).length, total: entries.length);
+      final provider = context.read<MedicationsProvider>();
+      final midnight = DateTime(d.year, d.month, d.day).millisecondsSinceEpoch;
+      final nextMidnight = midnight + 24 * 60 * 60 * 1000;
+      await _ensureMonthCache(d);
+      final entries = _enumerateDayEntries(
+        d,
+        provider.medications,
+        midnight,
+        nextMidnight,
+      );
+      _weekDayCounts[key] = _DayCount(
+        taken: entries.where((e) => e.taken).length,
+        total: entries.length,
+      );
       if (!mounted) return; // early abort if screen gone
       setState(() {}); // trigger repaint for that tile
     }
   }
 
   bool _weekHasAll(DateTime weekMonday) {
-    for (int i=0;i<7;i++) { if (!_weekDayCounts.containsKey(_dayKey(weekMonday.add(Duration(days:i))))) return false; }
+    for (int i = 0; i < 7; i++) {
+      if (!_weekDayCounts.containsKey(
+        _dayKey(weekMonday.add(Duration(days: i))),
+      ))
+        return false;
+    }
     return true;
   }
 
-  String _dayKey(DateTime d) => '${d.year}${d.month.toString().padLeft(2,'0')}${d.day.toString().padLeft(2,'0')}';
+  String _dayKey(DateTime d) =>
+      '${d.year}${d.month.toString().padLeft(2, '0')}${d.day.toString().padLeft(2, '0')}';
 
   Widget _buildMonthStrip() {
     final selectedMonthKey = '${_selectedDay.year}-${_selectedDay.month}';
@@ -155,10 +191,13 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
         controller: _monthPageController,
         onPageChanged: (page) {
           final m = _monthWindow[page];
-          final day = _selectedDay.day.clamp(1, DateUtils.getDaysInMonth(m.year, m.month));
+          final day = _selectedDay.day.clamp(
+            1,
+            DateUtils.getDaysInMonth(m.year, m.month),
+          );
           _changeDay(DateTime(m.year, m.month, day));
           _animateWeekToSelected();
-            _maybeExpandMonthWindow(page);
+          _maybeExpandMonthWindow(page);
         },
         itemCount: _monthWindow.length,
         itemBuilder: (_, i) {
@@ -168,17 +207,37 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
           return Center(
             child: GestureDetector(
               onTap: () {
-                _monthPageController.animateToPage(i, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+                _monthPageController.animateToPage(
+                  i,
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOut,
+                );
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
-                  color: selected ? Theme.of(context).colorScheme.primary.withValues(alpha:.18) : Colors.transparent,
+                  color: selected
+                      ? Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: .18)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Text(_monthLabel(m.month), style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: selected ? Theme.of(context).colorScheme.primary : Colors.grey[700])),
+                child: Text(
+                  _monthLabel(m.month),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: selected
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.grey[700],
+                  ),
+                ),
               ),
             ),
           );
@@ -190,26 +249,35 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   Widget _buildDayStrip() {
     // Weekly pager: stable anchor to avoid artifacts. Swipe to move week.
     return SizedBox(
-  height: 116,
+      height: 116,
       child: PageView.builder(
         controller: _weekController,
         onPageChanged: (page) {
           final delta = page - _currentWeekPage;
-            if (delta != 0) {
-              final weekdayOffset = _selectedDay.weekday - 1; // 0-based
-              setState(() {
-                _weekAnchorMonday = _weekAnchorMonday.add(Duration(days: 7 * delta));
-                _selectedDay = _weekAnchorMonday.add(Duration(days: weekdayOffset));
-                _currentWeekPage = page;
-              });
-              _scheduleEntriesRebuild();
-            }
+          if (delta != 0) {
+            final weekdayOffset = _selectedDay.weekday - 1; // 0-based
+            setState(() {
+              _weekAnchorMonday = _weekAnchorMonday.add(
+                Duration(days: 7 * delta),
+              );
+              _selectedDay = _weekAnchorMonday.add(
+                Duration(days: weekdayOffset),
+              );
+              _currentWeekPage = page;
+            });
+            _scheduleEntriesRebuild();
+          }
         },
         itemBuilder: (context, pageIndex) {
           final weekOffset = pageIndex - _currentWeekPage;
-          final displayWeekStart = _weekAnchorMonday.add(Duration(days: 7 * weekOffset));
+          final displayWeekStart = _weekAnchorMonday.add(
+            Duration(days: 7 * weekOffset),
+          );
           _computeWeekCounts(displayWeekStart); // ensure counts
-          final days = List.generate(7, (i) => displayWeekStart.add(Duration(days: i)));
+          final days = List.generate(
+            7,
+            (i) => displayWeekStart.add(Duration(days: i)),
+          );
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Column(
@@ -218,7 +286,7 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [for (final d in days) _buildDayTile(d)],
                 ),
-                const SizedBox(height:8),
+                const SizedBox(height: 8),
                 // handle bar indicator mimic
                 Container(
                   width: 56,
@@ -227,7 +295,7 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
                     color: Colors.grey[300],
                     borderRadius: BorderRadius.circular(3),
                   ),
-                )
+                ),
               ],
             ),
           );
@@ -237,37 +305,74 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   }
 
   Widget _buildDayTile(DateTime d) {
-    final selected = d.year == _selectedDay.year && d.month == _selectedDay.month && d.day == _selectedDay.day;
+    final selected =
+        d.year == _selectedDay.year &&
+        d.month == _selectedDay.month &&
+        d.day == _selectedDay.day;
     final count = _weekDayCounts[_dayKey(d)];
     return GestureDetector(
       onTap: () {
-  // Immediate change (no debounce) for direct tap
-  _changeDay(d);
+        // Immediate change (no debounce) for direct tap
+        _changeDay(d);
         _weekAnchorMonday = _startOfWeek(d);
         _animateWeekToSelected();
         _syncMonthPageToSelected();
       },
       child: Container(
-  width: 48,
+        width: 48,
         decoration: BoxDecoration(
-          color: selected ? Theme.of(context).colorScheme.primary : Colors.white,
+          color: selected
+              ? Theme.of(context).colorScheme.primary
+              : Colors.white,
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: .05), blurRadius: selected?12:4, offset: const Offset(0, 3))
+            BoxShadow(
+              color: Colors.black.withValues(alpha: .05),
+              blurRadius: selected ? 12 : 4,
+              offset: const Offset(0, 3),
+            ),
           ],
-          border: Border.all(color: selected ? Theme.of(context).colorScheme.primary : Colors.transparent),
+          border: Border.all(
+            color: selected
+                ? Theme.of(context).colorScheme.primary
+                : Colors.transparent,
+          ),
         ),
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(_weekdayShort(d.weekday).toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: .5, color: selected ? Colors.white70 : Colors.grey[600])),
-            const SizedBox(height:4),
-            Text('${d.day}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: selected ? Colors.white : Colors.black87)),
-            const SizedBox(height:4),
+            Text(
+              _weekdayShort(d.weekday).toUpperCase(),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: .5,
+                color: selected ? Colors.white70 : Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${d.day}',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 4),
             const _DottedDivider(),
-            const SizedBox(height:4),
-            Text(count==null?'-': '${count.taken}/${count.total}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: selected ? Colors.white : Theme.of(context).colorScheme.primary)),
+            const SizedBox(height: 4),
+            Text(
+              count == null ? '-' : '${count.taken}/${count.total}',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: selected
+                    ? Colors.white
+                    : Theme.of(context).colorScheme.primary,
+              ),
+            ),
           ],
         ),
       ),
@@ -277,7 +382,11 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   DateTime _startOfWeek(DateTime d) {
     // Treat Monday as start of week
     final weekday = d.weekday; // Mon=1
-    return DateTime(d.year, d.month, d.day).subtract(Duration(days: weekday - 1));
+    return DateTime(
+      d.year,
+      d.month,
+      d.day,
+    ).subtract(Duration(days: weekday - 1));
   }
 
   void _animateWeekToSelected() {
@@ -289,9 +398,15 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
 
   void _syncMonthPageToSelected() {
     if (!_monthPageController.hasClients) return;
-    final idx = _monthWindow.indexWhere((m) => m.year == _selectedDay.year && m.month == _selectedDay.month);
+    final idx = _monthWindow.indexWhere(
+      (m) => m.year == _selectedDay.year && m.month == _selectedDay.month,
+    );
     if (idx != -1 && _monthPageController.page?.round() != idx) {
-      _monthPageController.animateToPage(idx, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+      _monthPageController.animateToPage(
+        idx,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
     }
   }
 
@@ -302,11 +417,19 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
           padding: const EdgeInsets.only(top: 64),
           child: Column(
             children: [
-              const Icon(Icons.medication_outlined, size: 64, color: Colors.grey),
+              const Icon(
+                Icons.medication_outlined,
+                size: 64,
+                color: Colors.grey,
+              ),
               const SizedBox(height: 16),
               const Text('No doses scheduled for this day'),
               const SizedBox(height: 12),
-              ElevatedButton.icon(onPressed: _openWizard, icon: const Icon(Icons.add), label: const Text('Add Medication')),
+              ElevatedButton.icon(
+                onPressed: _openWizard,
+                icon: const Icon(Icons.add),
+                label: const Text('Add Medication'),
+              ),
             ],
           ),
         ),
@@ -314,61 +437,88 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
     }
     final filtered = _filter == _DoseFilter.all
         ? _entries
-        : _entries.where((e) => _filter == _DoseFilter.taken ? e.taken : !e.taken).toList();
+        : _entries
+              .where((e) => _filter == _DoseFilter.taken ? e.taken : !e.taken)
+              .toList();
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
           child: Row(
             children: [
-              Text('$_takenCount/$_totalCount taken', style: TextStyle(fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.primary)),
+              Text(
+                '$_takenCount/$_totalCount taken',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
               const Spacer(),
               _FilterToggle(
                 value: _filter,
-                onChanged: (f) => setState(()=> _filter = f),
+                onChanged: (f) => setState(() => _filter = f),
               ),
             ],
           ),
         ),
-        const SizedBox(height:4),
+        const SizedBox(height: 4),
         Expanded(
           child: ListView.builder(
             itemCount: filtered.length,
             padding: const EdgeInsets.only(bottom: 120, top: 4),
+            // Performance optimizations
+            itemExtent: 72.0, // Fixed height for better scrolling performance
+            cacheExtent: 500.0, // Cache more items for smoother scrolling
+            addAutomaticKeepAlives: false, // Reduce memory usage
+            addRepaintBoundaries: false, // Reduce overdraw for simple items
             itemBuilder: (context, index) {
               final e = filtered[index];
-              final prev = index>0 ? filtered[index-1] : null;
-              final showTime = prev == null || _timeOfDay(prev.timestamp) != _timeOfDay(e.timestamp);
-              return _TimelineRow(
-                entry: e,
-                showTime: showTime,
-                onTap: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => MedicationWizardScreen(editMedication: e.medication),
-                  ));
-                  _invalidateMonthCache();
-                  await _buildEntries();
-                },
-                onToggleTaken: () async {
-                  if (e.taken) return; // only allow mark taken for now
-                  // Optimistic local update
-                  setState(() { e.taken = true; _takenCount++; });
-                  final key = _dayKey(_selectedDay);
-                  final dayCount = _weekDayCounts[key];
-                  if (dayCount != null) {
-                    _weekDayCounts[key] = _DayCount(taken: dayCount.taken + 1, total: dayCount.total);
-                  }
-                  // Update month logs cache
-                  final logs = _logsByMed[e.medication.id] ??= [];
-                  logs.add({
-                    'id': const Uuid().v4(),
-                    'schedule_time_id': e.scheduleTimeId,
-                    'taken_ts': DateTime.now().millisecondsSinceEpoch,
-                    'status': 'taken',
-                  });
-                  // Persist in background
-                  unawaited(_persistTaken(e));
-                },
+              final prev = index > 0 ? filtered[index - 1] : null;
+              final showTime =
+                  prev == null ||
+                  _timeOfDay(prev.timestamp) != _timeOfDay(e.timestamp);
+              return RepaintBoundary(
+                child: _TimelineRow(
+                  entry: e,
+                  showTime: showTime,
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => MedicationWizardScreen(
+                          editMedication: e.medication,
+                        ),
+                      ),
+                    );
+                    _invalidateMonthCache();
+                    await _buildEntries();
+                  },
+                  onToggleTaken: () async {
+                    if (e.taken) return; // only allow mark taken for now
+                    // Optimistic local update
+                    setState(() {
+                      e.taken = true;
+                      _takenCount++;
+                    });
+                    final key = _dayKey(_selectedDay);
+                    final dayCount = _weekDayCounts[key];
+                    if (dayCount != null) {
+                      _weekDayCounts[key] = _DayCount(
+                        taken: dayCount.taken + 1,
+                        total: dayCount.total,
+                      );
+                    }
+                    // Update month logs cache
+                    final logs = _logsByMed[e.medication.id] ??= [];
+                    logs.add({
+                      'id': const Uuid().v4(),
+                      'schedule_time_id': e.scheduleTimeId,
+                      'taken_ts': DateTime.now().millisecondsSinceEpoch,
+                      'status': 'taken',
+                    });
+                    // Persist in background
+                    unawaited(_persistTaken(e));
+                  },
+                ),
               );
             },
           ),
@@ -379,11 +529,25 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
 
   String _timeOfDay(int ts) {
     final d = DateTime.fromMillisecondsSinceEpoch(ts);
-    return '${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';
+    return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 
-  String _weekdayShort(int weekday) => ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][weekday-1];
-  String _monthLabel(int month) => ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month-1];
+  String _weekdayShort(int weekday) =>
+      ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][weekday - 1];
+  String _monthLabel(int month) => [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ][month - 1];
 
   // --- Caching Helpers ---
   Future<void> _ensureMonthCache(DateTime day) async {
@@ -411,41 +575,65 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
     }
   }
 
-  List<_DoseEntry> _enumerateDayEntries(DateTime day, List<Medication> meds, int midnight, int nextMidnight) {
-    final weekdayNames = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
-    final dayCode = weekdayNames[day.weekday-1];
+  List<_DoseEntry> _enumerateDayEntries(
+    DateTime day,
+    List<Medication> meds,
+    int midnight,
+    int nextMidnight,
+  ) {
+    final weekdayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    final dayCode = weekdayNames[day.weekday - 1];
     final list = <_DoseEntry>[];
     for (final med in meds) {
       final schedules = _schedulesByMed[med.id] ?? const [];
       final medLogs = _logsByMed[med.id] ?? const [];
       final takenIdsForDay = medLogs
-          .where((l) => (l['taken_ts'] as int? ?? 0) >= midnight && (l['taken_ts'] as int? ?? 0) < nextMidnight && (l['status'] as String?)=='taken')
-          .map((l) => l['schedule_time_id']).toSet();
+          .where(
+            (l) =>
+                (l['taken_ts'] as int? ?? 0) >= midnight &&
+                (l['taken_ts'] as int? ?? 0) < nextMidnight &&
+                (l['status'] as String?) == 'taken',
+          )
+          .map((l) => l['schedule_time_id'])
+          .toSet();
       for (final s in schedules) {
-        final start = s['start_date'] as int?; final end = s['end_date'] as int?;
+        final start = s['start_date'] as int?;
+        final end = s['end_date'] as int?;
         if (start != null && start >= nextMidnight) continue;
         if (end != null && end < midnight) continue;
-        final daysCsv = s['days_of_week'] as String?; if (daysCsv != null && daysCsv.isNotEmpty) {
-          final parts = daysCsv.split(',').map((e)=>e.trim().toUpperCase()).toSet();
+        final daysCsv = s['days_of_week'] as String?;
+        if (daysCsv != null && daysCsv.isNotEmpty) {
+          final parts = daysCsv
+              .split(',')
+              .map((e) => e.trim().toUpperCase())
+              .toSet();
           if (!parts.contains(dayCode)) continue;
         }
         final times = _timesBySchedule[s['id'] as String] ?? const [];
         for (final t in times) {
           final timeStr = (t['time_local'] as String?) ?? '00:00';
           final tp = timeStr.split(':');
-          final hour = int.tryParse(tp.isNotEmpty?tp[0]:'0') ?? 0;
-          final minute = int.tryParse(tp.length>1?tp[1]:'0') ?? 0;
-          final ts = DateTime(day.year, day.month, day.day, hour, minute).millisecondsSinceEpoch;
-          list.add(_DoseEntry(
-            medication: med,
-            scheduleId: s['id'] as String,
-            scheduleTimeId: t['id'] as String,
-            timeLabel: timeStr,
-            timestamp: ts,
-            dosage: t['dosage'] as String?,
-            prn: (t['prn'] as int? ?? 0) == 1,
-            taken: takenIdsForDay.contains(t['id']),
-          ));
+          final hour = int.tryParse(tp.isNotEmpty ? tp[0] : '0') ?? 0;
+          final minute = int.tryParse(tp.length > 1 ? tp[1] : '0') ?? 0;
+          final ts = DateTime(
+            day.year,
+            day.month,
+            day.day,
+            hour,
+            minute,
+          ).millisecondsSinceEpoch;
+          list.add(
+            _DoseEntry(
+              medication: med,
+              scheduleId: s['id'] as String,
+              scheduleTimeId: t['id'] as String,
+              timeLabel: timeStr,
+              timestamp: ts,
+              dosage: t['dosage'] as String?,
+              prn: (t['prn'] as int? ?? 0) == 1,
+              taken: takenIdsForDay.contains(t['id']),
+            ),
+          );
         }
       }
     }
@@ -460,7 +648,9 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
     // Append future months when near end (lazy load months, data already on-demand)
     if (pageIndex > _monthWindow.length - 4) {
       final last = _monthWindow.last;
-      final additions = [for (int i=1;i<=6;i++) DateTime(last.year, last.month + i, 1)];
+      final additions = [
+        for (int i = 1; i <= 6; i++) DateTime(last.year, last.month + i, 1),
+      ];
       setState(() => _monthWindow.addAll(additions));
     }
   }
@@ -486,12 +676,13 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
   Widget build(BuildContext context) {
     final provider = context.watch<MedicationsProvider>();
     return Scaffold(
-      appBar: const HiDocAppBar(
-        pageTitle: 'Medications',
-      ),
+      appBar: const HiDocAppBar(pageTitle: 'Medications'),
       floatingActionButton: (_showLoading || provider.loading)
           ? null
-          : FloatingActionButton(onPressed: _openWizard, child: const Icon(Icons.add)),
+          : FloatingActionButton(
+              onPressed: _openWizard,
+              child: const Icon(Icons.add),
+            ),
       body: provider.loading || _showLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -516,13 +707,16 @@ class MedicationsV2ProviderScope extends StatelessWidget {
   Widget build(BuildContext context) {
     return ProxyProvider<DatabaseService, MedicationsProvider>(
       update: (context, db, previous) {
-        final profileId = context.read<SelectedProfileProvider>().selectedProfileId;
-  final userId = 'prototype-user';
-  // Updated standardized prototype user id
-  // (legacy rows may still exist with earlier id; migration handles normalization)
-  // Keeping variable for potential future real auth mapping.
-  // NOTE: variable currently unused but retained for clarity.
-        return previous ?? MedicationsProvider(db: db, userId: userId, profileId: profileId);
+        final profileId = context
+            .read<SelectedProfileProvider>()
+            .selectedProfileId;
+        final userId = 'prototype-user';
+        // Updated standardized prototype user id
+        // (legacy rows may still exist with earlier id; migration handles normalization)
+        // Keeping variable for potential future real auth mapping.
+        // NOTE: variable currently unused but retained for clarity.
+        return previous ??
+            MedicationsProvider(db: db, userId: userId, profileId: profileId);
       },
       child: child,
     );
@@ -538,15 +732,34 @@ class _DoseEntry {
   final String? dosage;
   final bool prn;
   bool taken;
-  _DoseEntry({required this.medication, required this.scheduleId, required this.scheduleTimeId, required this.timeLabel, required this.timestamp, this.dosage, required this.prn, this.taken = false});
+  _DoseEntry({
+    required this.medication,
+    required this.scheduleId,
+    required this.scheduleTimeId,
+    required this.timeLabel,
+    required this.timestamp,
+    this.dosage,
+    required this.prn,
+    this.taken = false,
+  });
 }
 
 class _TimelineRow extends StatelessWidget {
-  final _DoseEntry entry; final bool showTime; final VoidCallback onTap; final VoidCallback onToggleTaken;
-  const _TimelineRow({required this.entry, required this.showTime, required this.onTap, required this.onToggleTaken});
+  final _DoseEntry entry;
+  final bool showTime;
+  final VoidCallback onTap;
+  final VoidCallback onToggleTaken;
+  const _TimelineRow({
+    required this.entry,
+    required this.showTime,
+    required this.onTap,
+    required this.onToggleTaken,
+  });
   @override
   Widget build(BuildContext context) {
-    final timeStr = TimeOfDay.fromDateTime(DateTime.fromMillisecondsSinceEpoch(entry.timestamp)).format(context);
+    final timeStr = TimeOfDay.fromDateTime(
+      DateTime.fromMillisecondsSinceEpoch(entry.timestamp),
+    ).format(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: GestureDetector(
@@ -555,7 +768,13 @@ class _TimelineRow extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .05), blurRadius: 10, offset: const Offset(0,4))],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: .05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           child: Row(
@@ -563,17 +782,44 @@ class _TimelineRow extends StatelessWidget {
             children: [
               SizedBox(
                 width: 56,
-                child: showTime ? Text(timeStr, style: const TextStyle(fontWeight: FontWeight.w600)) : const SizedBox(),
+                child: showTime
+                    ? Text(
+                        timeStr,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      )
+                    : const SizedBox(),
               ),
-              Container(width: 1, height: 40, margin: const EdgeInsets.only(right: 14), color: Theme.of(context).dividerColor.withValues(alpha:.4)),
-              _MedicationIcon(form: entry.medication.notes ?? '', taken: entry.taken),
+              Container(
+                width: 1,
+                height: 40,
+                margin: const EdgeInsets.only(right: 14),
+                color: Theme.of(context).dividerColor.withValues(alpha: .4),
+              ),
+              _MedicationIcon(
+                form: entry.medication.notes ?? '',
+                taken: entry.taken,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text.rich(
                   TextSpan(
                     children: [
-                      TextSpan(text: entry.medication.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                      if ((entry.dosage ?? '').isNotEmpty) TextSpan(text: '  ${entry.dosage}', style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey[700], fontSize: 13)),
+                      TextSpan(
+                        text: entry.medication.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                      if ((entry.dosage ?? '').isNotEmpty)
+                        TextSpan(
+                          text: '  ${entry.dosage}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey[700],
+                            fontSize: 13,
+                          ),
+                        ),
                     ],
                   ),
                   maxLines: 1,
@@ -589,10 +835,18 @@ class _TimelineRow extends StatelessWidget {
                   width: 30,
                   height: 30,
                   decoration: BoxDecoration(
-                    color: entry.taken ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHighest,
+                    color: entry.taken
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(entry.taken ? Icons.check : Icons.radio_button_unchecked, size: 18, color: entry.taken ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface),
+                  child: Icon(
+                    entry.taken ? Icons.check : Icons.radio_button_unchecked,
+                    size: 18,
+                    color: entry.taken
+                        ? Theme.of(context).colorScheme.onPrimary
+                        : Theme.of(context).colorScheme.onSurface,
+                  ),
                 ),
               ),
             ],
@@ -604,7 +858,8 @@ class _TimelineRow extends StatelessWidget {
 }
 
 class _MedicationIcon extends StatelessWidget {
-  final String form; final bool taken;
+  final String form;
+  final bool taken;
   const _MedicationIcon({required this.form, required this.taken});
   @override
   Widget build(BuildContext context) {
@@ -613,7 +868,9 @@ class _MedicationIcon extends StatelessWidget {
       width: 44,
       height: 44,
       decoration: BoxDecoration(
-  color: taken ? Theme.of(context).colorScheme.primary.withValues(alpha: .25) : Theme.of(context).colorScheme.primary.withValues(alpha: .12),
+        color: taken
+            ? Theme.of(context).colorScheme.primary.withValues(alpha: .25)
+            : Theme.of(context).colorScheme.primary.withValues(alpha: .12),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Icon(icon, color: Colors.black54),
@@ -626,35 +883,61 @@ class _MedicationIcon extends StatelessWidget {
 enum _DoseFilter { all, taken, remaining }
 
 class _FilterToggle extends StatelessWidget {
-  final _DoseFilter value; final ValueChanged<_DoseFilter> onChanged;
+  final _DoseFilter value;
+  final ValueChanged<_DoseFilter> onChanged;
   const _FilterToggle({required this.value, required this.onChanged});
   @override
   Widget build(BuildContext context) {
     Color selectedBg = Theme.of(context).colorScheme.primary;
-  Color unSelBg = Theme.of(context).colorScheme.surfaceContainerHighest;
-    TextStyle txtSel = TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontWeight: FontWeight.w600, fontSize: 12);
-  TextStyle txtUn = TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w500, fontSize: 12);
+    Color unSelBg = Theme.of(context).colorScheme.surfaceContainerHighest;
+    TextStyle txtSel = TextStyle(
+      color: Theme.of(context).colorScheme.onPrimary,
+      fontWeight: FontWeight.w600,
+      fontSize: 12,
+    );
+    TextStyle txtUn = TextStyle(
+      color: Theme.of(context).colorScheme.onSurface,
+      fontWeight: FontWeight.w500,
+      fontSize: 12,
+    );
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha:.4)),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: .4),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           _seg('All', _DoseFilter.all, selectedBg, unSelBg, txtSel, txtUn),
           _seg('Taken', _DoseFilter.taken, selectedBg, unSelBg, txtSel, txtUn),
-          _seg('Remaining', _DoseFilter.remaining, selectedBg, unSelBg, txtSel, txtUn),
+          _seg(
+            'Remaining',
+            _DoseFilter.remaining,
+            selectedBg,
+            unSelBg,
+            txtSel,
+            txtUn,
+          ),
         ],
       ),
     );
   }
-  Widget _seg(String label, _DoseFilter f, Color selBg, Color unBg, TextStyle sel, TextStyle un) {
+
+  Widget _seg(
+    String label,
+    _DoseFilter f,
+    Color selBg,
+    Color unBg,
+    TextStyle sel,
+    TextStyle un,
+  ) {
     final isSel = value == f;
     return GestureDetector(
-      onTap: ()=> onChanged(f),
+      onTap: () => onChanged(f),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeInOut,
@@ -663,7 +946,7 @@ class _FilterToggle extends StatelessWidget {
           color: isSel ? selBg : unBg,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Text(label, style: isSel? sel : un),
+        child: Text(label, style: isSel ? sel : un),
       ),
     );
   }
@@ -673,30 +956,47 @@ class _DottedDivider extends StatelessWidget {
   const _DottedDivider();
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final dots = (constraints.maxWidth / 4).floor();
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: List.generate(dots, (i) => Container(
-          width: 2,
-          height: 2,
-          margin: const EdgeInsets.symmetric(horizontal: 1),
-          decoration: BoxDecoration(color: Colors.white.withValues(alpha: .7), shape: BoxShape.circle),
-        )),
-      );
-    });
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final dots = (constraints.maxWidth / 4).floor();
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(
+            dots,
+            (i) => Container(
+              width: 2,
+              height: 2,
+              margin: const EdgeInsets.symmetric(horizontal: 1),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .7),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
-class _DayCount { final int taken; final int total; _DayCount({required this.taken, required this.total}); }
+class _DayCount {
+  final int taken;
+  final int total;
+  _DayCount({required this.taken, required this.total});
+}
 
 IconData _iconForForm(String form) {
   final f = form.toLowerCase();
-  if (f.contains('inject') || f.contains('shot') || f.contains('syringe') || f.contains('vaccine')) return Icons.vaccines_outlined;
-  if (f.contains('capsule') || f.contains('tablet') || f.contains('pill')) return Icons.medication_outlined;
+  if (f.contains('inject') ||
+      f.contains('shot') ||
+      f.contains('syringe') ||
+      f.contains('vaccine'))
+    return Icons.vaccines_outlined;
+  if (f.contains('capsule') || f.contains('tablet') || f.contains('pill'))
+    return Icons.medication_outlined;
   if (f.contains('drop')) return Icons.water_drop_outlined;
   if (f.contains('spray') || f.contains('inhal')) return Icons.air;
-  if (f.contains('cream') || f.contains('gel') || f.contains('ointment')) return Icons.blur_on;
+  if (f.contains('cream') || f.contains('gel') || f.contains('ointment'))
+    return Icons.blur_on;
   return Icons.medication_outlined;
 }
-

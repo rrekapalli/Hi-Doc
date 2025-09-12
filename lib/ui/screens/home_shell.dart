@@ -25,7 +25,12 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _pages[_index],
+      body: RepaintBoundary(
+        child: IndexedStack(
+          index: _index,
+          children: _pages.map((page) => RepaintBoundary(child: page)).toList(),
+        ),
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
@@ -43,17 +48,34 @@ class _HomeShellState extends State<HomeShell> {
             ),
           ],
         ),
-        child: NavigationBar(
-          height: 64,
-          selectedIndex: _index,
-          onDestinationSelected: (i) => setState(() => _index = i),
-          destinations: const [
-            NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: 'Messages'),
-            NavigationDestination(icon: Icon(Icons.medication), label: 'Medications'),
-            NavigationDestination(icon: Icon(Icons.description_outlined), label: 'Reports'),
-            NavigationDestination(icon: Icon(Icons.local_activity_outlined), label: 'Activities'),
-            NavigationDestination(icon: Icon(Icons.show_chart), label: 'Trends'),
-          ],
+        child: RepaintBoundary(
+          child: NavigationBar(
+            height: 64,
+            selectedIndex: _index,
+            onDestinationSelected: (i) => setState(() => _index = i),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.chat_bubble_outline),
+                label: 'Messages',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.medication),
+                label: 'Medications',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.description_outlined),
+                label: 'Reports',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.local_activity_outlined),
+                label: 'Activities',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.show_chart),
+                label: 'Trends',
+              ),
+            ],
+          ),
         ),
       ),
     );
