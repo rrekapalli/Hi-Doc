@@ -49,6 +49,78 @@
       "args": ["build", "linux", "--debug"],
       "group": "build",
       "problemMatcher": []
+    },
+    {
+      "label": "flutter run (android)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["run", "-d", "android"],
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "flutter build (android)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["build", "apk", "--debug"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "flutter build (android-release)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["build", "apk", "--release"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "flutter run (ios)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["run", "-d", "ios"],
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "flutter build (ios)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["build", "ios", "--debug"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "flutter build (ios-release)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["build", "ipa", "--release"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "flutter run (windows)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["run", "-d", "windows"],
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "flutter build (windows)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["build", "windows", "--debug"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "flutter build (windows-release)",
+      "type": "shell",
+      "command": "flutter",
+      "args": ["build", "windows", "--release"],
+      "group": "build",
+      "problemMatcher": []
     }
   ]
 }
