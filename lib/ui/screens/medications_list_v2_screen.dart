@@ -109,12 +109,13 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
     );
     list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     final taken = list.where((e) => e.taken).length;
-    if (mounted)
+    if (mounted) {
       setState(() {
         _entries = list;
         _takenCount = taken;
         _totalCount = list.length;
       });
+    }
     _buildingEntries = false;
     // Update week counts cache for this day
     _weekDayCounts[_dayKey(day)] = _DayCount(taken: taken, total: list.length);
@@ -174,8 +175,9 @@ class _MedicationsListV2ScreenState extends State<MedicationsListV2Screen> {
     for (int i = 0; i < 7; i++) {
       if (!_weekDayCounts.containsKey(
         _dayKey(weekMonday.add(Duration(days: i))),
-      ))
+      )) {
         return false;
+      }
     }
     return true;
   }
@@ -990,13 +992,16 @@ IconData _iconForForm(String form) {
   if (f.contains('inject') ||
       f.contains('shot') ||
       f.contains('syringe') ||
-      f.contains('vaccine'))
+      f.contains('vaccine')) {
     return Icons.vaccines_outlined;
-  if (f.contains('capsule') || f.contains('tablet') || f.contains('pill'))
+  }
+  if (f.contains('capsule') || f.contains('tablet') || f.contains('pill')) {
     return Icons.medication_outlined;
+  }
   if (f.contains('drop')) return Icons.water_drop_outlined;
   if (f.contains('spray') || f.contains('inhal')) return Icons.air;
-  if (f.contains('cream') || f.contains('gel') || f.contains('ointment'))
+  if (f.contains('cream') || f.contains('gel') || f.contains('ointment')) {
     return Icons.blur_on;
+  }
   return Icons.medication_outlined;
 }

@@ -453,8 +453,9 @@ class ReportsService {
 
     // 2) Common MIME types from backend (multer)
     if (t != null) {
-      if (t == 'application/pdf' || t.endsWith('/pdf'))
+      if (t == 'application/pdf' || t.endsWith('/pdf')) {
         return ReportFileType.pdf;
+      }
       if (t.startsWith('image/')) return ReportFileType.image;
     }
 
