@@ -57,15 +57,23 @@ class Medication {
     name: row['name'] as String,
     notes: row['notes'] as String?,
     medicationUrl: row['medication_url'] as String?,
-  createdAt: (row['created_at'] as int?)
-    ?? (row['createdAt'] as int?)
-    ?? DateTime.now().millisecondsSinceEpoch,
-  updatedAt: (row['updated_at'] as int?)
-    ?? (row['updatedAt'] as int?)
-    ?? DateTime.now().millisecondsSinceEpoch,
+    createdAt:
+        (row['created_at'] as int?) ??
+        (row['createdAt'] as int?) ??
+        DateTime.now().millisecondsSinceEpoch,
+    updatedAt:
+        (row['updated_at'] as int?) ??
+        (row['updatedAt'] as int?) ??
+        DateTime.now().millisecondsSinceEpoch,
   );
 
-  static Medication create({required String userId, required String profileId, required String name, String? notes, String? url}) {
+  static Medication create({
+    required String userId,
+    required String profileId,
+    required String name,
+    String? notes,
+    String? url,
+  }) {
     final now = DateTime.now().millisecondsSinceEpoch;
     return Medication(
       id: const Uuid().v4(),
@@ -118,18 +126,19 @@ class MedicationSchedule {
     'reminder_enabled': reminderEnabled ? 1 : 0,
   };
 
-  static MedicationSchedule fromDb(Map<String, Object?> row) => MedicationSchedule(
-    id: row['id'] as String,
-    medicationId: row['medication_id'] as String,
-    schedule: row['schedule'] as String,
-    frequencyPerDay: row['frequency_per_day'] as int?,
-    isForever: (row['is_forever'] as int? ?? 0) == 1,
-    startDate: row['start_date'] as int?,
-    endDate: row['end_date'] as int?,
-    daysOfWeek: row['days_of_week'] as String?,
-    timezone: row['timezone'] as String?,
-    reminderEnabled: (row['reminder_enabled'] as int? ?? 1) == 1,
-  );
+  static MedicationSchedule fromDb(Map<String, Object?> row) =>
+      MedicationSchedule(
+        id: row['id'] as String,
+        medicationId: row['medication_id'] as String,
+        schedule: row['schedule'] as String,
+        frequencyPerDay: row['frequency_per_day'] as int?,
+        isForever: (row['is_forever'] as int? ?? 0) == 1,
+        startDate: row['start_date'] as int?,
+        endDate: row['end_date'] as int?,
+        daysOfWeek: row['days_of_week'] as String?,
+        timezone: row['timezone'] as String?,
+        reminderEnabled: (row['reminder_enabled'] as int? ?? 1) == 1,
+      );
 
   static MedicationSchedule create({
     required String medicationId,
@@ -193,18 +202,19 @@ class MedicationScheduleTime {
     'next_trigger_ts': nextTriggerTs,
   };
 
-  static MedicationScheduleTime fromDb(Map<String, Object?> row) => MedicationScheduleTime(
-    id: row['id'] as String,
-    scheduleId: row['schedule_id'] as String,
-    timeLocal: row['time_local'] as String,
-    dosage: row['dosage'] as String?,
-    doseAmount: (row['dose_amount'] as num?)?.toDouble(),
-    doseUnit: row['dose_unit'] as String?,
-    instructions: row['instructions'] as String?,
-    prn: (row['prn'] as int? ?? 0) == 1,
-    sortOrder: row['sort_order'] as int?,
-    nextTriggerTs: row['next_trigger_ts'] as int?,
-  );
+  static MedicationScheduleTime fromDb(Map<String, Object?> row) =>
+      MedicationScheduleTime(
+        id: row['id'] as String,
+        scheduleId: row['schedule_id'] as String,
+        timeLocal: row['time_local'] as String,
+        dosage: row['dosage'] as String?,
+        doseAmount: (row['dose_amount'] as num?)?.toDouble(),
+        doseUnit: row['dose_unit'] as String?,
+        instructions: row['instructions'] as String?,
+        prn: (row['prn'] as int? ?? 0) == 1,
+        sortOrder: row['sort_order'] as int?,
+        nextTriggerTs: row['next_trigger_ts'] as int?,
+      );
 
   static MedicationScheduleTime create({
     required String scheduleId,
@@ -257,6 +267,17 @@ class MedicationIntakeLog {
     'actual_dose_unit': actualDoseUnit,
     'notes': notes,
   };
+
+  static MedicationIntakeLog fromDb(Map<String, Object?> row) =>
+      MedicationIntakeLog(
+        id: row['id'] as String,
+        scheduleTimeId: row['schedule_time_id'] as String,
+        takenTs: row['taken_ts'] as int,
+        status: row['status'] as String,
+        actualDoseAmount: (row['actual_dose_amount'] as num?)?.toDouble(),
+        actualDoseUnit: row['actual_dose_unit'] as String?,
+        notes: row['notes'] as String?,
+      );
 
   static MedicationIntakeLog create({
     required String scheduleTimeId,
