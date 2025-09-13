@@ -5,6 +5,7 @@ import 'medication_repositories.dart';
 import 'reminder_repository.dart';
 import 'health_entry_repository.dart';
 import 'message_repository.dart';
+import 'health_analytics_repository.dart';
 
 /// Central manager for all repository instances
 /// Provides a single point of access to all data repositories
@@ -22,6 +23,7 @@ class RepositoryManager {
   MedicationScheduleTimeRepository? _medicationScheduleTimeRepository;
   MedicationIntakeLogRepository? _medicationIntakeLogRepository;
   HealthEntryRepository? _healthEntryRepository;
+  HealthAnalyticsRepository? _healthAnalyticsRepository;
   MessageRepository? _messageRepository;
   ReportRepository? _reportRepository;
   ReminderRepository? _reminderRepository;
@@ -91,6 +93,12 @@ class RepositoryManager {
     return _healthEntryRepository!;
   }
 
+  /// Get health analytics repository
+  HealthAnalyticsRepository get healthAnalyticsRepository {
+    _healthAnalyticsRepository ??= HealthAnalyticsRepository(localDb: _localDb);
+    return _healthAnalyticsRepository!;
+  }
+
   /// Get message repository
   MessageRepository get messageRepository {
     _messageRepository ??= MessageRepositoryImpl(localDb: _localDb);
@@ -120,6 +128,7 @@ class RepositoryManager {
     _medicationScheduleTimeRepository = null;
     _medicationIntakeLogRepository = null;
     _healthEntryRepository = null;
+    _healthAnalyticsRepository = null;
     _messageRepository = null;
     _reportRepository = null;
     _reminderRepository = null;

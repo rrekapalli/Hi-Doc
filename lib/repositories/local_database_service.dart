@@ -12,7 +12,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// Provides a clean foundation for repository implementations
 class LocalDatabaseService {
   static const _dbName = 'hi_doc.db';
-  static const _dbVersion = 12; // Incremented for OAuth user schema update
+  static const _dbVersion = 13; // Incremented for health analytics table
 
   Database? _db;
   bool _initialized = false;
@@ -142,6 +142,9 @@ class LocalDatabaseService {
     if (oldVersion < 12) {
       await _migrateToV12(db);
     }
+    if (oldVersion < 13) {
+      await _migrateToV13(db);
+    }
   }
 
   /// Create user management tables
@@ -238,6 +241,41 @@ class LocalDatabaseService {
 
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_reports_user ON reports(user_id);
+    ''');
+
+    // Health analytics table for trend analysis and insights
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS health_analytics (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        person_id TEXT,
+        vital_type TEXT,
+        analysis_type TEXT NOT NULL,
+        start_date INTEGER NOT NULL,
+        end_date INTEGER NOT NULL,
+        data TEXT NOT NULL,
+        insights TEXT NOT NULL,
+        recommendations TEXT NOT NULL,
+        risk_level TEXT,
+        generated_at INTEGER NOT NULL,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_health_analytics_user ON health_analytics(user_id);
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_health_analytics_type ON health_analytics(vital_type, analysis_type);
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_health_analytics_date ON health_analytics(start_date, end_date);
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_health_analytics_generated ON health_analytics(generated_at);
     ''');
   }
 
@@ -485,6 +523,56 @@ class LocalDatabaseService {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[LocalDB] Migration to v12 failed: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Migration for version 13: Add health analytics table
+  Future<void> _migrateToV13(Database db) async {
+    try {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS health_analytics (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          person_id TEXT,
+          vital_type TEXT,
+          analysis_type TEXT NOT NULL,
+          start_date INTEGER NOT NULL,
+          end_date INTEGER NOT NULL,
+          data TEXT NOT NULL,
+          insights TEXT NOT NULL,
+          recommendations TEXT NOT NULL,
+          risk_level TEXT,
+          generated_at INTEGER NOT NULL,
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      ''');
+
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_health_analytics_user ON health_analytics(user_id);
+      ''');
+
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_health_analytics_type ON health_analytics(vital_type, analysis_type);
+      ''');
+
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_health_analytics_date ON health_analytics(start_date, end_date);
+      ''');
+
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_health_analytics_generated ON health_analytics(generated_at);
+      ''');
+
+      if (kDebugMode) {
+        debugPrint(
+          '[LocalDB] Migration to v13 completed - health analytics table added',
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[LocalDB] Migration to v13 failed: $e');
       }
       rethrow;
     }
