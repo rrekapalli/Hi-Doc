@@ -23,6 +23,7 @@ dependencies:
   firebase_auth: ^6.0.2
   google_sign_in: ^7.1.1
   flutter_appauth: ^9.0.1 # For Microsoft OAuth (with Azure AD B2C or MS identity)
+  aad_oauth: ^1.0.1 # Microsoft Sign-In with Azure AD
   http: ^1.2.1
   file_picker: ^10.3.2
   flutter_local_notifications: ^19.4.1

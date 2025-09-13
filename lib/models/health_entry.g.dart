@@ -7,22 +7,21 @@ part of 'health_entry.dart';
 // **************************************************************************
 
 HealthEntry _$HealthEntryFromJson(Map<String, dynamic> json) => HealthEntry(
-      id: json['id'] as String,
-      timestamp: DateTime.parse(json['timestamp'] as String),
-      type: $enumDecode(_$HealthEntryTypeEnumMap, json['type']),
-      personId: json['personId'] as String?,
-      vital: json['vital'] == null
-          ? null
-          : VitalReading.fromJson(json['vital'] as Map<String, dynamic>),
-      medication: json['medication'] == null
-          ? null
-          : MedicationCourse.fromJson(
-              json['medication'] as Map<String, dynamic>),
-      labResult: json['labResult'] == null
-          ? null
-          : LabResult.fromJson(json['labResult'] as Map<String, dynamic>),
-      note: json['note'] as String?,
-    );
+  id: json['id'] as String,
+  timestamp: DateTime.parse(json['timestamp'] as String),
+  type: $enumDecode(_$HealthEntryTypeEnumMap, json['type']),
+  personId: json['personId'] as String?,
+  vital: json['vital'] == null
+      ? null
+      : VitalReading.fromJson(json['vital'] as Map<String, dynamic>),
+  medication: json['medication'] == null
+      ? null
+      : MedicationCourse.fromJson(json['medication'] as Map<String, dynamic>),
+  labResult: json['labResult'] == null
+      ? null
+      : LabResult.fromJson(json['labResult'] as Map<String, dynamic>),
+  note: json['note'] as String?,
+);
 
 Map<String, dynamic> _$HealthEntryToJson(HealthEntry instance) =>
     <String, dynamic>{
@@ -44,12 +43,12 @@ const _$HealthEntryTypeEnumMap = {
 };
 
 VitalReading _$VitalReadingFromJson(Map<String, dynamic> json) => VitalReading(
-      vitalType: $enumDecode(_$VitalTypeEnumMap, json['vitalType']),
-      value: (json['value'] as num?)?.toDouble(),
-      systolic: (json['systolic'] as num?)?.toDouble(),
-      diastolic: (json['diastolic'] as num?)?.toDouble(),
-      unit: json['unit'] as String?,
-    );
+  vitalType: $enumDecode(_$VitalTypeEnumMap, json['vitalType']),
+  value: (json['value'] as num?)?.toDouble(),
+  systolic: (json['systolic'] as num?)?.toDouble(),
+  diastolic: (json['diastolic'] as num?)?.toDouble(),
+  unit: json['unit'] as String?,
+);
 
 Map<String, dynamic> _$VitalReadingToJson(VitalReading instance) =>
     <String, dynamic>{
@@ -109,13 +108,13 @@ Map<String, dynamic> _$LabResultParameterToJson(LabResultParameter instance) =>
     };
 
 LabResult _$LabResultFromJson(Map<String, dynamic> json) => LabResult(
-      sourceFilePath: json['sourceFilePath'] as String,
-      parameters: (json['parameters'] as List<dynamic>)
-          .map((e) => LabResultParameter.fromJson(e as Map<String, dynamic>))
-          .toList(),
-    );
+  sourceFilePath: json['sourceFilePath'] as String,
+  parameters: (json['parameters'] as List<dynamic>)
+      .map((e) => LabResultParameter.fromJson(e as Map<String, dynamic>))
+      .toList(),
+);
 
 Map<String, dynamic> _$LabResultToJson(LabResult instance) => <String, dynamic>{
-      'sourceFilePath': instance.sourceFilePath,
-      'parameters': instance.parameters.map((e) => e.toJson()).toList(),
-    };
+  'sourceFilePath': instance.sourceFilePath,
+  'parameters': instance.parameters.map((e) => e.toJson()).toList(),
+};

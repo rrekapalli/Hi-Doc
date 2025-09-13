@@ -12,7 +12,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// Provides a clean foundation for repository implementations
 class LocalDatabaseService {
   static const _dbName = 'hi_doc.db';
-  static const _dbVersion = 11; // Incremented for refactoring
+  static const _dbVersion = 12; // Incremented for OAuth user schema update
 
   Database? _db;
   bool _initialized = false;
@@ -139,21 +139,30 @@ class LocalDatabaseService {
     if (oldVersion < 11) {
       await _migrateToV11(db);
     }
+    if (oldVersion < 12) {
+      await _migrateToV12(db);
+    }
   }
 
   /// Create user management tables
   Future<void> _createUserTables(Database db) async {
-    // Users table for local user profiles
+    // Enhanced users table for OAuth user profiles
     await db.execute('''
       CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT UNIQUE,
-        name TEXT,
-        provider TEXT, -- 'google' or 'microsoft'
-        provider_id TEXT, -- external provider user ID
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        last_backup_at INTEGER
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uid TEXT NOT NULL,
+        email TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        photo_url TEXT,
+        given_name TEXT,
+        surname TEXT,
+        provider TEXT NOT NULL, -- 'google' or 'microsoft'
+        tenant_id TEXT, -- For Microsoft users
+        created_at TEXT NOT NULL,
+        last_login_at TEXT,
+        is_active INTEGER DEFAULT 1,
+        metadata TEXT, -- JSON string for additional provider-specific data
+        UNIQUE(uid, provider)
       )
     ''');
 
@@ -162,7 +171,11 @@ class LocalDatabaseService {
     ''');
 
     await db.execute('''
-      CREATE INDEX IF NOT EXISTS idx_users_provider ON users(provider, provider_id);
+      CREATE INDEX IF NOT EXISTS idx_users_provider ON users(provider, uid);
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);
     ''');
   }
 
@@ -452,6 +465,26 @@ class LocalDatabaseService {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[LocalDB] Migration to v11 failed: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Migration for version 12: Update users table for OAuth support
+  Future<void> _migrateToV12(Database db) async {
+    try {
+      // Drop the old users table and recreate with new schema
+      await db.execute('DROP TABLE IF EXISTS users');
+      await _createUserTables(db);
+
+      if (kDebugMode) {
+        debugPrint(
+          '[LocalDB] Migration to v12 completed - users table recreated for OAuth',
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[LocalDB] Migration to v12 failed: $e');
       }
       rethrow;
     }
