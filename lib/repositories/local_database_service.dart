@@ -354,6 +354,29 @@ class LocalDatabaseService {
       CREATE INDEX IF NOT EXISTS idx_ai_usage_user_month ON ai_usage(user_id, month_year);
     ''');
 
+    // Detailed AI usage logs for tracking individual requests
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ai_usage_logs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        month_year TEXT NOT NULL, -- 'YYYY-MM' format
+        request_type TEXT DEFAULT 'chat',
+        model TEXT,
+        tokens_used INTEGER,
+        request_id TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_user_month ON ai_usage_logs(user_id, month_year);
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_timestamp ON ai_usage_logs(timestamp);
+    ''');
+
     // Cached AI responses for offline access
     await db.execute('''
       CREATE TABLE IF NOT EXISTS ai_responses (

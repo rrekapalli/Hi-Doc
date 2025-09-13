@@ -44,20 +44,20 @@
   - Implement offline-first chat functionality
   - _Requirements: 1.1, 5.1, 6.1_
 
-- [ ] 4. Implement AI service integration with rate limiting
-- [ ] 4.1 Create AI rate limiting service with local tracking
+- [x] 4. Implement AI service integration with rate limiting
+- [x] 4.1 Create AI rate limiting service with local tracking
   - Implement AIRateLimiter class to track monthly usage in SQLite
   - Add logic to enforce 100 calls per user per month limit
   - Create user-friendly rate limit messaging and feedback
   - _Requirements: 3.3, 3.4, 8.1, 8.2, 8.3_
 
-- [ ] 4.2 Implement external AI service client
+- [x] 4.2 Implement external AI service client
   - Create AIServiceClient to communicate with Java + Spring Boot backend
   - Remove local AI processing dependencies
   - Add proper error handling for AI service connectivity issues
   - _Requirements: 3.1, 3.2, 5.2, 5.3_
 
-- [ ] 4.3 Update ChatProvider to use new AI service with rate limiting
+- [x] 4.3 Update ChatProvider to use new AI service with rate limiting
   - Integrate AIRateLimiter into chat message processing
   - Store AI responses locally in SQLite for offline access
   - Add connectivity checks before making AI requests
