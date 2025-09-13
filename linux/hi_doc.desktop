@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Hi-Doc Health Tracker
+Comment=AI-powered chat-based health tracker
+Exec=hi_doc
+Icon=hi_doc
+Terminal=false
+Categories=Health;Medical;Utility;
+StartupNotify=true
+MimeType=application/pdf;
+Keywords=health;medical;tracker;AI;chat;

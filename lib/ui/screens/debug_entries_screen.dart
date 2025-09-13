@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/database_service.dart';
 import '../../models/health_entry.dart';
-import 'user_settings_screen.dart';
 import '../common/hi_doc_app_bar.dart';
 
 class DebugEntriesScreen extends StatefulWidget {
@@ -22,8 +21,8 @@ class _DebugEntriesScreenState extends State<DebugEntriesScreen> {
   }
 
   void _load() {
-  final db = context.read<DatabaseService>();
-  _entriesFuture = db.listAllEntries();
+    final db = context.read<DatabaseService>();
+    _entriesFuture = db.listAllEntries();
   }
 
   @override
@@ -48,9 +47,13 @@ class _DebugEntriesScreenState extends State<DebugEntriesScreen> {
               if (e.vital != null) {
                 final v = e.vital!;
                 if (v.vitalType == VitalType.bloodPressure) {
-                  title = 'BP ${v.systolic?.toStringAsFixed(0)}/${v.diastolic?.toStringAsFixed(0)} ${v.unit ?? ''}'.trim();
+                  title =
+                      'BP ${v.systolic?.toStringAsFixed(0)}/${v.diastolic?.toStringAsFixed(0)} ${v.unit ?? ''}'
+                          .trim();
                 } else {
-                  title = '${v.vitalType.name}: ${v.value?.toStringAsFixed(1) ?? ''} ${v.unit ?? ''}'.trim();
+                  title =
+                      '${v.vitalType.name}: ${v.value?.toStringAsFixed(1) ?? ''} ${v.unit ?? ''}'
+                          .trim();
                 }
               } else if (e.note != null) {
                 title = 'Note: ${e.note}';

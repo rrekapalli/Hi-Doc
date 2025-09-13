@@ -30,15 +30,11 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
     }
   }
 
-  List<Activity> _activitiesForDay(DateTime day, List<Activity> all) {
-    return all.where((a) => isSameDay(a.timestamp, day)).toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-  }
-
   Map<DateTime, List<Activity>> _groupByDay(List<Activity> all) {
     final map = <DateTime, List<Activity>>{};
     for (final a in all) {
-      final day = DateTime.utc(a.timestamp.year, a.timestamp.month, a.timestamp.day);
+      final day =
+          DateTime.utc(a.timestamp.year, a.timestamp.month, a.timestamp.day);
       map.putIfAbsent(day, () => []).add(a);
     }
     return map;
@@ -54,7 +50,10 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
     final monthStart = DateTime(_focusedDay.year, _focusedDay.month, 1);
     final nextMonth = DateTime(_focusedDay.year, _focusedDay.month + 1, 1);
     final monthActivities = allActivities
-        .where((a) => a.timestamp.isAfter(monthStart.subtract(const Duration(milliseconds: 1))) && a.timestamp.isBefore(nextMonth))
+        .where((a) =>
+            a.timestamp.isAfter(
+                monthStart.subtract(const Duration(milliseconds: 1))) &&
+            a.timestamp.isBefore(nextMonth))
         .toList()
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
@@ -66,9 +65,11 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
         selectedDayPredicate: (d) => isSameDay(d, selectedDay),
         calendarFormat: _calendarFormat,
         startingDayOfWeek: StartingDayOfWeek.monday,
-        headerStyle: const HeaderStyle(formatButtonVisible: false, titleCentered: true),
+        headerStyle:
+            const HeaderStyle(formatButtonVisible: false, titleCentered: true),
         locale: 'en_US',
-        eventLoader: (day) => grouped[DateTime.utc(day.year, day.month, day.day)] ?? const [],
+        eventLoader: (day) =>
+            grouped[DateTime.utc(day.year, day.month, day.day)] ?? const [],
         onDaySelected: (sel, foc) {
           setState(() {
             _selectedDay = sel;
@@ -89,10 +90,15 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
             final dots = items.take(3).map((a) {
               final intensity = a.intensity?.toLowerCase() ?? '';
               Color c;
-              if (intensity.contains('high')) c = Colors.pinkAccent;
-              else if (intensity.contains('moderate')) c = Colors.orangeAccent;
-              else if (intensity.contains('low')) c = Colors.teal;
-              else c = Colors.blueGrey;
+              if (intensity.contains('high')) {
+                c = Colors.pinkAccent;
+              } else if (intensity.contains('moderate')) {
+                c = Colors.orangeAccent;
+              } else if (intensity.contains('low')) {
+                c = Colors.teal;
+              } else {
+                c = Colors.blueGrey;
+              }
               return Container(
                 width: 6,
                 height: 6,
@@ -111,12 +117,15 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
 
     Widget buildMonthList() {
       if (activitiesProvider.isLoading && allActivities.isEmpty) {
-        return const Expanded(child: Center(child: CircularProgressIndicator()));
+        return const Expanded(
+            child: Center(child: CircularProgressIndicator()));
       }
       if (activitiesProvider.error != null && allActivities.isEmpty) {
         return Expanded(
           child: Center(
-            child: Text('Failed to load activities\n${activitiesProvider.error}', textAlign: TextAlign.center),
+            child: Text(
+                'Failed to load activities\n${activitiesProvider.error}',
+                textAlign: TextAlign.center),
           ),
         );
       }
@@ -132,7 +141,8 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
       if (monthActivities.isEmpty) {
         return Expanded(
           child: Center(
-            child: Text('No activities in ${_monthName(_focusedDay.month)} ${_focusedDay.year}'),
+            child: Text(
+                'No activities in ${_monthName(_focusedDay.month)} ${_focusedDay.year}'),
           ),
         );
       }
@@ -141,7 +151,8 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
       final entries = <_ListEntry>[];
       DateTime? currentDay;
       for (final a in monthActivities) {
-        final d = DateTime(a.timestamp.year, a.timestamp.month, a.timestamp.day);
+        final d =
+            DateTime(a.timestamp.year, a.timestamp.month, a.timestamp.day);
         if (currentDay == null || currentDay != d) {
           currentDay = d;
           entries.add(_ListEntry.header(d));
@@ -156,15 +167,26 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
             final e = entries[index];
             if (e.isHeader) {
               final d = e.day!;
-              final dayActs = monthActivities.where((a) => a.timestamp.year == d.year && a.timestamp.month == d.month && a.timestamp.day == d.day).length;
+              final dayActs = monthActivities
+                  .where((a) =>
+                      a.timestamp.year == d.year &&
+                      a.timestamp.month == d.month &&
+                      a.timestamp.day == d.day)
+                  .length;
               return Container(
-                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withValues(alpha: 0.4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Row(
                   children: [
-                    Text('${_monthName(d.month)} ${d.day}', style: Theme.of(context).textTheme.labelLarge),
+                    Text('${_monthName(d.month)} ${d.day}',
+                        style: Theme.of(context).textTheme.labelLarge),
                     const SizedBox(width: 8),
-                    Text('$dayActs', style: Theme.of(context).textTheme.labelSmall),
+                    Text('$dayActs',
+                        style: Theme.of(context).textTheme.labelSmall),
                   ],
                 ),
               );
@@ -187,9 +209,12 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  Text('${_monthName(_focusedDay.month)} ${_focusedDay.year}', style: Theme.of(context).textTheme.titleMedium),
+                  Text('${_monthName(_focusedDay.month)} ${_focusedDay.year}',
+                      style: Theme.of(context).textTheme.titleMedium),
                   const Spacer(),
-                  Text('${monthActivities.length} item${monthActivities.length == 1 ? '' : 's'}', style: Theme.of(context).textTheme.labelMedium),
+                  Text(
+                      '${monthActivities.length} item${monthActivities.length == 1 ? '' : 's'}',
+                      style: Theme.of(context).textTheme.labelMedium),
                 ],
               ),
             ),
@@ -208,17 +233,20 @@ class _ActivitiesScreenState extends State<ActivitiesScreen> {
     );
   }
 
-  String _fmtDate(DateTime d) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final dd = DateTime(d.year, d.month, d.day);
-    if (dd == today) return 'Today';
-    return '${_monthName(d.month)} ${d.day}, ${d.year}';
-  }
-
   String _monthName(int m) => const [
-        'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'
-      ][m-1];
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec'
+      ][m - 1];
 }
 
 class _ActivityTile extends StatelessWidget {
@@ -240,8 +268,8 @@ class _ActivityTile extends StatelessWidget {
     if (activity.intensity != null) {
       subtitleParts.add(activity.intensity!);
     }
-  final ts = TimeOfDay.fromDateTime(activity.timestamp);
-  final dateStr = '${ts.format(context)}';
+    final ts = TimeOfDay.fromDateTime(activity.timestamp);
+    final dateStr = ts.format(context);
 
     return ListTile(
       leading: const Icon(Icons.directions_run),
@@ -250,7 +278,8 @@ class _ActivityTile extends StatelessWidget {
         dateStr,
         if (subtitleParts.isNotEmpty) subtitleParts.join(' · '),
       ].join('  ·  ')),
-      trailing: Text(activity.profileId, style: Theme.of(context).textTheme.labelSmall),
+      trailing: Text(activity.profileId,
+          style: Theme.of(context).textTheme.labelSmall),
     );
   }
 }
@@ -266,4 +295,3 @@ class _ListEntry {
       : day = null,
         isHeader = false;
 }
-

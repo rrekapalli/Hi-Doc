@@ -15,13 +15,14 @@ export class ChatGptService {
   }
 
   async chat(
-    messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
+    messages: { role: 'system' | 'user' | 'assistant'; content: string | any[] }[],
     model: string = 'gpt-3.5-turbo'
   ): Promise<string> {
     try {
       const completion = await this.openai.chat.completions.create({
         model: model,
-        messages: messages,
+        messages: messages as any,
+        max_tokens: 4000, // Increased for complex medical reports
       });
 
       const content = completion.choices[0].message.content;

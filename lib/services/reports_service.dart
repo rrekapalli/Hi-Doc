@@ -19,7 +19,7 @@ class ReportsService {
     final token = await authService.getIdToken();
     return {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token'
+      'Authorization': 'Bearer $token',
     };
   }
 
@@ -27,9 +27,7 @@ class ReportsService {
   Future<Map<String, String>> _getUploadHeaders() async {
     final authService = AuthService();
     final token = await authService.getIdToken();
-    return {
-      'Authorization': 'Bearer $token'
-    };
+    return {'Authorization': 'Bearer $token'};
   }
 
   /// Get the app's documents directory for storing report files
@@ -47,11 +45,11 @@ class ReportsService {
     final reportsDir = await _getReportsDirectory();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final extension = path.extension(sourceFile.path);
-  final finalFileName = fileName ?? 'report_$timestamp$extension';
-    
+    final finalFileName = fileName ?? 'report_$timestamp$extension';
+
     final targetPath = path.join(reportsDir.path, finalFileName);
     final targetFile = await sourceFile.copy(targetPath);
-    
+
     return targetFile.path;
   }
 
@@ -61,7 +59,7 @@ class ReportsService {
       // Extract filename from full path
       final fileName = path.basename(filePath);
       final headers = await _getUploadHeaders();
-      
+
       final response = await http.get(
         Uri.parse('${AppConfig.backendBaseUrl}/api/reports/files/$fileName'),
         headers: headers,
@@ -78,7 +76,6 @@ class ReportsService {
       return null;
     }
   }
-
 
   /// Create a new report on the backend
   Future<Report> createReport(Report report) async {
@@ -104,7 +101,9 @@ class ReportsService {
         debugPrint('Report created successfully: ${report.id}');
         return report;
       } else {
-        debugPrint('Failed to create report. Status: ${response.statusCode}, Body: ${response.body}');
+        debugPrint(
+          'Failed to create report. Status: ${response.statusCode}, Body: ${response.body}',
+        );
         throw Exception('Failed to create report: ${response.statusCode}');
       }
     } catch (e) {
@@ -119,39 +118,62 @@ class ReportsService {
     required File file,
     required String userId,
     required ReportSource source,
-  String? profileId,
+    String? profileId,
     String? aiSummary,
+    bool autoParseAfterUpload = true,
   }) async {
     try {
       final headers = await _getUploadHeaders();
       final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/reports/upload');
-      
+
       final request = http.MultipartRequest('POST', uri);
       request.headers.addAll(headers);
-      
+
       // Add file
-      request.files.add(await http.MultipartFile.fromPath(
-        'file',
-        file.path,
-        filename: path.basename(file.path),
-      ));
-      
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          file.path,
+          filename: path.basename(file.path),
+        ),
+      );
+
       // Add additional fields
       request.fields['source'] = source.name;
-  request.fields['profile_id'] = profileId ?? 'default-profile';
+      request.fields['profile_id'] = profileId ?? 'default-profile';
       if (aiSummary != null) {
         request.fields['ai_summary'] = aiSummary;
       }
-      
+
       final response = await request.send();
       final responseBody = await response.stream.bytesToString();
-      
+
       if (response.statusCode == 201) {
         final json = jsonDecode(responseBody);
         debugPrint('File uploaded successfully: ${json['id']}');
-        return _reportFromBackendJson(json);
+        final uploadedReport = _reportFromBackendJson(json);
+
+        // Auto-parse the report if requested
+        if (autoParseAfterUpload) {
+          debugPrint('Auto-parsing report after upload: ${uploadedReport.id}');
+          try {
+            final parsedData = await parseReport(uploadedReport.id);
+            if (parsedData.isNotEmpty) {
+              // Mark as parsed and return updated report
+              await markAsParsed(uploadedReport.id);
+              return uploadedReport.copyWith(parsed: true);
+            }
+          } catch (e) {
+            debugPrint('Auto-parsing failed: $e');
+            // Continue with original report if parsing fails
+          }
+        }
+
+        return uploadedReport;
       } else {
-        debugPrint('Failed to upload file. Status: ${response.statusCode}, Body: $responseBody');
+        debugPrint(
+          'Failed to upload file. Status: ${response.statusCode}, Body: $responseBody',
+        );
         throw Exception('Failed to upload file: ${response.statusCode}');
       }
     } catch (e) {
@@ -167,39 +189,58 @@ class ReportsService {
     required String fileName,
     required String userId,
     required ReportSource source,
-  String? profileId,
+    String? profileId,
     String? aiSummary,
+    bool autoParseAfterUpload = true,
   }) async {
     try {
       final headers = await _getUploadHeaders();
       final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/reports/upload');
-      
+
       final request = http.MultipartRequest('POST', uri);
       request.headers.addAll(headers);
-      
+
       // Add file bytes
-      request.files.add(http.MultipartFile.fromBytes(
-        'file',
-        bytes,
-        filename: fileName,
-      ));
-      
+      request.files.add(
+        http.MultipartFile.fromBytes('file', bytes, filename: fileName),
+      );
+
       // Add additional fields
       request.fields['source'] = source.name;
-  request.fields['profile_id'] = profileId ?? 'default-profile';
+      request.fields['profile_id'] = profileId ?? 'default-profile';
       if (aiSummary != null) {
         request.fields['ai_summary'] = aiSummary;
       }
-      
+
       final response = await request.send();
       final responseBody = await response.stream.bytesToString();
-      
+
       if (response.statusCode == 201) {
         final json = jsonDecode(responseBody);
         debugPrint('File uploaded successfully: ${json['id']}');
-        return _reportFromBackendJson(json);
+        final uploadedReport = _reportFromBackendJson(json);
+
+        // Auto-parse the report if requested
+        if (autoParseAfterUpload) {
+          debugPrint('Auto-parsing report after upload: ${uploadedReport.id}');
+          try {
+            final parsedData = await parseReport(uploadedReport.id);
+            if (parsedData.isNotEmpty) {
+              // Mark as parsed and return updated report
+              await markAsParsed(uploadedReport.id);
+              return uploadedReport.copyWith(parsed: true);
+            }
+          } catch (e) {
+            debugPrint('Auto-parsing failed: $e');
+            // Continue with original report if parsing fails
+          }
+        }
+
+        return uploadedReport;
       } else {
-        debugPrint('Failed to upload file. Status: ${response.statusCode}, Body: $responseBody');
+        debugPrint(
+          'Failed to upload file. Status: ${response.statusCode}, Body: $responseBody',
+        );
         throw Exception('Failed to upload file: ${response.statusCode}');
       }
     } catch (e) {
@@ -222,7 +263,9 @@ class ReportsService {
         final List<dynamic> reportsJson = jsonDecode(response.body);
         return reportsJson.map((json) => _reportFromBackendJson(json)).toList();
       } else {
-        debugPrint('Failed to fetch reports. Status: ${response.statusCode}, Body: ${response.body}');
+        debugPrint(
+          'Failed to fetch reports. Status: ${response.statusCode}, Body: ${response.body}',
+        );
         throw Exception('Failed to fetch reports: ${response.statusCode}');
       }
     } catch (e) {
@@ -299,7 +342,9 @@ class ReportsService {
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
         final List<dynamic> healthDataList = json['health_data'] ?? [];
-        return healthDataList.map((item) => HealthDataEntry.fromJson(item)).toList();
+        return healthDataList
+            .map((item) => HealthDataEntry.fromJson(item))
+            .toList();
       } else {
         throw Exception('Failed to parse report: ${response.statusCode}');
       }
@@ -316,9 +361,7 @@ class ReportsService {
       final response = await http.patch(
         Uri.parse('${AppConfig.backendBaseUrl}/api/reports/$reportId'),
         headers: headers,
-        body: jsonEncode({
-          'ai_summary': aiSummary,
-        }),
+        body: jsonEncode({'ai_summary': aiSummary}),
       );
 
       return response.statusCode == 200;
@@ -335,9 +378,7 @@ class ReportsService {
       final response = await http.patch(
         Uri.parse('${AppConfig.backendBaseUrl}/api/reports/$reportId'),
         headers: headers,
-        body: jsonEncode({
-          'parsed': 1,
-        }),
+        body: jsonEncode({'parsed': 1}),
       );
 
       return response.statusCode == 200;
@@ -350,7 +391,8 @@ class ReportsService {
   /// Convert backend JSON to Report model
   Report _reportFromBackendJson(Map<String, dynamic> json) {
     final filePath = json['file_path']?.toString();
-    final originalName = (json['original_file_name'] ?? json['original_name'])?.toString();
+    final originalName = (json['original_file_name'] ?? json['original_name'])
+        ?.toString();
     final typeStr = json['file_type']?.toString();
 
     return Report(
@@ -358,7 +400,11 @@ class ReportsService {
       userId: json['user_id'],
       profileId: json['profile_id'],
       filePath: filePath ?? '',
-      fileType: _parseFileType(typeStr, filePath: filePath, originalName: originalName),
+      fileType: _parseFileType(
+        typeStr,
+        filePath: filePath,
+        originalName: originalName,
+      ),
       source: _parseSource(json['source']),
       aiSummary: json['ai_summary'],
       createdAt: _parseDateTime(json['created_at']),
@@ -371,7 +417,7 @@ class ReportsService {
     if (dateValue == null) {
       return DateTime.now();
     }
-    
+
     if (dateValue is String) {
       // Try parsing as ISO string first
       try {
@@ -393,7 +439,11 @@ class ReportsService {
     }
   }
 
-  ReportFileType _parseFileType(String? type, {String? filePath, String? originalName}) {
+  ReportFileType _parseFileType(
+    String? type, {
+    String? filePath,
+    String? originalName,
+  }) {
     // Normalize
     final t = type?.toLowerCase().trim();
 
@@ -403,12 +453,15 @@ class ReportsService {
 
     // 2) Common MIME types from backend (multer)
     if (t != null) {
-      if (t == 'application/pdf' || t.endsWith('/pdf')) return ReportFileType.pdf;
+      if (t == 'application/pdf' || t.endsWith('/pdf')) {
+        return ReportFileType.pdf;
+      }
       if (t.startsWith('image/')) return ReportFileType.image;
     }
 
     // 3) Fallback to extension from original name or stored path
-    final candidate = (originalName?.isNotEmpty == true ? originalName : filePath) ?? '';
+    final candidate =
+        (originalName?.isNotEmpty == true ? originalName : filePath) ?? '';
     if (candidate.isNotEmpty) {
       final ext = path.extension(candidate).toLowerCase();
       switch (ext) {

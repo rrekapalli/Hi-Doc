@@ -3,7 +3,10 @@ import { db } from './db.js';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { signToken, verifyToken } from './jwtUtil.js';
-import { interpretMessage, aiProviderStatus, AiInterpretation, getHealthDataEntryPrompt, getHealthDataTrendPrompt, clearPromptCache } from './ai.js';
+import { interpretMessage, aiProviderStatus, AiInterpretation, getHealthDataEntryPrompt, getHealthDataTrendPrompt, getReportsProcessingPrompt, clearPromptCache } from './ai.js';
+import { ocrService } from './ocr.js';
+import * as aiService from './ai.js';
+import { ChatGptService } from './chatgpt.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -1871,63 +1874,167 @@ router.patch('/api/reports/:id', (req: Request, res: Response) => {
   res.json(updatedReport);
 });
 
-// Parse report endpoint (placeholder for OCR/AI integration)
-router.post('/api/reports/:id/parse', (req: Request, res: Response) => {
+// Parse report endpoint with OCR and AI integration
+router.post('/api/reports/:id/parse', async (req: Request, res: Response) => {
   const userId = (req as any).user?.id || (req as any).userId;
   const reportId = req.params.id;
   
-  // Check if report exists and belongs to user
-  const report = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(reportId, userId) as any;
-  if (!report) return res.status(404).json({ error: 'report not found' });
-  
-  // TODO: Implement actual OCR and AI parsing logic
-  // For now, return placeholder data
-  const placeholderHealthData = [
-    {
-      id: randomUUID(),
-      user_id: userId,
-  profile_id: 'default-profile',
-      type: 'GLUCOSE',
-      category: 'HEALTH_PARAMS',
-      value: '120',
-      quantity: null,
-      unit: 'mg/dL',
-  // Use ms epoch (was seconds previously)
-  timestamp: Date.now(),
-      notes: 'Extracted from report',
-      report_id: reportId,
+  try {
+    // Check if report exists and belongs to user
+    const report = db.prepare('SELECT * FROM reports WHERE id = ? AND user_id = ?').get(reportId, userId) as any;
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
     }
-  ];
-  
-  // Note: Database doesn't have 'parsed' column, so we skip that update
-  
-  // In a real implementation, save the health data entries to the database
-  for (const healthData of placeholderHealthData) {
-    db.prepare(`
-  INSERT INTO health_data (id, user_id, profile_id, type, category, value, quantity, unit, timestamp, notes, report_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      healthData.id,
-      healthData.user_id,
-  healthData.profile_id,
-      healthData.type,
-      healthData.category,
-      healthData.value,
-      healthData.quantity,
-      healthData.unit,
-      healthData.timestamp,
-      healthData.notes,
-      healthData.report_id
-    );
+
+    // Check if report is already parsed
+    if (report.parsed) {
+      // Return existing parsed data
+      const existingHealthData = db.prepare(
+        'SELECT * FROM health_data WHERE report_id = ? ORDER BY timestamp DESC'
+      ).all(reportId);
+      
+      return res.json({
+        success: true,
+        health_data: existingHealthData,
+        message: 'Report already parsed',
+        from_cache: true
+      });
+    }
+
+    // Get full file path
+    const reportsDir = path.join(__dirname, '../../reports');
+    const filePath = path.join(reportsDir, report.file_path);
+
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Report file not found on disk' });
+    }
+
+    logger.info('Starting report parsing', { reportId, filePath, fileType: report.file_type });
+
+    // Detect correct MIME type based on file extension if needed
+    let mimeType = report.file_type;
+    if (mimeType === 'application/octet-stream' || !mimeType) {
+      const ext = path.extname(report.file_path).toLowerCase();
+      if (ext === '.pdf') {
+        mimeType = 'application/pdf';
+      } else if (['.jpg', '.jpeg', '.png', '.bmp', '.tiff'].includes(ext)) {
+        mimeType = 'image/' + ext.substring(1);
+      }
+      logger.info('File type corrected based on extension', { 
+        originalType: report.file_type, 
+        correctedType: mimeType, 
+        extension: ext 
+      });
+    }
+
+    // Process the report file directly with AI
+    logger.info('Starting AI-based report processing', { reportId, filePath, mimeType });
+    
+    const aiResponse = await aiService.processReportFile(filePath, mimeType);
+    
+    logger.info('AI processing completed', { reportId, responseKeys: Object.keys(aiResponse) });
+
+    // Parse AI response as JSON
+    let parsedResponse;
+    try {
+      // The aiService.processReportFile already returns parsed JSON
+      parsedResponse = aiResponse;
+    } catch (parseError) {
+      logger.error('Failed to process AI response', { reportId, aiResponse, error: parseError });
+      return res.status(500).json({ error: 'AI response processing failed' });
+    }
+
+    // Validate response structure - handle multiple possible formats
+    let extractedData = [];
+    let reportTimestamp = Date.now();
+    
+    if (parsedResponse.success && parsedResponse.extractedData && Array.isArray(parsedResponse.extractedData)) {
+      // Standard format from prompt
+      extractedData = parsedResponse.extractedData;
+      if (parsedResponse.reportDate) {
+        reportTimestamp = new Date(parsedResponse.reportDate).getTime();
+      }
+    } else if (parsedResponse.health_parameters && Array.isArray(parsedResponse.health_parameters)) {
+      // Alternative format that might come from AI
+      extractedData = parsedResponse.health_parameters;
+    } else if (Array.isArray(parsedResponse)) {
+      // Direct array format
+      extractedData = parsedResponse;
+    } else {
+      logger.error('AI response has invalid structure', { reportId, parsedResponse });
+      return res.status(500).json({ error: 'AI response has invalid structure' });
+    }
+
+    const healthDataEntries = [];
+
+    // Convert AI extracted data to health_data format and save to database
+    for (const extractedItem of extractedData) {
+      const healthDataId = randomUUID();
+      const healthData = {
+        id: healthDataId,
+        user_id: userId,
+        profile_id: report.profile_id || 'default-profile',
+        type: extractedItem.type,
+        category: extractedItem.category || 'HEALTH_PARAMS',
+        value: extractedItem.value,
+        quantity: null, // Not used in report parsing
+        unit: extractedItem.unit,
+        timestamp: reportTimestamp,
+        notes: extractedItem.notes || `Extracted from report (confidence: ${extractedItem.confidence || 'unknown'})`,
+        report_id: reportId
+      };
+
+      // Insert into database
+      db.prepare(`
+        INSERT INTO health_data (id, user_id, profile_id, type, category, value, quantity, unit, timestamp, notes, report_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        healthData.id,
+        healthData.user_id,
+        healthData.profile_id,
+        healthData.type,
+        healthData.category,
+        healthData.value,
+        healthData.quantity,
+        healthData.unit,
+        healthData.timestamp,
+        healthData.notes,
+        healthData.report_id
+      );
+
+      healthDataEntries.push(healthData);
+    }
+
+    // Mark report as parsed and update AI summary
+    const aiSummary = `Extracted ${healthDataEntries.length} health parameters: ${healthDataEntries.map(h => h.type).join(', ')}`;
+    db.prepare('UPDATE reports SET parsed = 1, ai_summary = ? WHERE id = ?')
+      .run(aiSummary, reportId);
+
+    logger.info('Report parsed successfully', { 
+      reportId, 
+      healthDataCount: healthDataEntries.length,
+      overallConfidence: parsedResponse.overallConfidence,
+      reportType: parsedResponse.reportType
+    });
+
+    res.json({
+      success: true,
+      health_data: healthDataEntries,
+      message: `Successfully extracted ${healthDataEntries.length} health parameters from report`,
+      report_type: parsedResponse.reportType,
+      overall_confidence: parsedResponse.overallConfidence,
+      requires_confirmation: parsedResponse.requiresConfirmation
+    });
+
+  } catch (error) {
+    logger.error('Report parsing failed', { reportId, error });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ 
+      error: 'Failed to parse report',
+      details: errorMessage
+    });
   }
-  
-  logger.info('Report parsed successfully', { reportId, healthDataCount: placeholderHealthData.length });
-  
-  res.json({
-    success: true,
-    health_data: placeholderHealthData,
-    message: 'Report parsed successfully'
-  });
 });
 
 // File upload endpoint for reports

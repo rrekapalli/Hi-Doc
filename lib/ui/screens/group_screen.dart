@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'user_settings_screen.dart';
 import '../common/hi_doc_app_bar.dart';
 
 class ActivitiesScreen extends StatelessWidget {

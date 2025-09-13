@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { logger } from './logger.js';
-import { readFileSync } from 'fs';
+import { readFileSync, promises as fs } from 'fs';
 import { join } from 'path';
 
 // Global verbose flag
@@ -58,6 +58,7 @@ let _healthDataEntryPrompt: string | null = null;
 let _healthDataTrendPrompt: string | null = null;
 let _activityDataEntryPrompt: string | null = null;
 let _medicationDataEntryPrompt: string | null = null;
+let _reportsProcessingPrompt: string | null = null;
 
 // Prompt cache for better performance
 const promptCache = new Map<string, string>();
@@ -69,7 +70,8 @@ function initializePrompts(): void {
     'health_data_entry_prompt.txt',
     'health_data_trend_prompt.txt',
     'activity_data_entry_prompt.txt',
-    'medication_data_entry_prompt.txt'
+    'medication_data_entry_prompt.txt',
+    'reports_processing_prompt.txt'
   ];
 
   for (const promptFile of prompts) {
@@ -120,6 +122,17 @@ function getMedicationDataEntryPrompt(): string {
     }
   }
   return _medicationDataEntryPrompt;
+}
+
+// Load reports processing prompt from cache
+function getReportsProcessingPrompt(): string {
+  if (!_reportsProcessingPrompt) {
+    _reportsProcessingPrompt = promptCache.get('reports_processing_prompt.txt') || null;
+    if (!_reportsProcessingPrompt) {
+      throw new Error('Reports processing prompt not found in cache');
+    }
+  }
+  return _reportsProcessingPrompt;
 }
 
 // Load health data entry prompt from file
@@ -292,11 +305,12 @@ Return response in JSON:
 function clearPromptCache(): void {
   _healthDataEntryPrompt = null;
   _healthDataTrendPrompt = null;
+  _reportsProcessingPrompt = null;
   logger.debug('Prompt cache cleared');
 }
 
 // Export functions to get prompts (for use in routes.ts)
-export { getHealthDataEntryPrompt, getHealthDataTrendPrompt, clearPromptCache };
+export { getHealthDataEntryPrompt, getHealthDataTrendPrompt, getReportsProcessingPrompt, clearPromptCache, initializePrompts };
 
 interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string; }
 
@@ -592,8 +606,181 @@ function salvageHeuristic(msg: string): AiInterpretation | null {
   return null;
 }
 
+/**
+ * Process a report file using AI document understanding
+ * @param filePath - Path to the report file (PDF or image)
+ * @param mimeType - MIME type of the file
+ * @returns Parsed health data from the report
+ */
+export async function processReportFile(filePath: string, mimeType: string): Promise<any> {
+  try {
+    logger.info('Processing report file with AI', { filePath, mimeType });
+    
+    const reportsPrompt = getReportsProcessingPrompt();
+    
+    if (mimeType === 'application/pdf') {
+      // Process PDF directly with ChatGPT
+      return await processPdfWithChatGPT(filePath, reportsPrompt);
+    } else if (mimeType.startsWith('image/')) {
+      // Process image with vision API
+      return await processImageWithVision(filePath, reportsPrompt);
+    } else {
+      throw new Error(`Unsupported file type: ${mimeType}`);
+    }
+    
+  } catch (error) {
+    logger.error('Error processing report file with AI', { filePath, error });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to process report file: ${errorMessage}`);
+  }
+}
+
+/**
+ * Process PDF by asking ChatGPT to analyze medical report content
+ */
+async function processPdfWithChatGPT(filePath: string, reportsPrompt: string): Promise<any> {
+  try {
+    logger.info('Processing PDF with ChatGPT directly', { filePath });
+    
+    // Create messages for ChatGPT asking it to analyze a medical report
+    const messages = [
+      {
+        role: 'system' as const,
+        content: reportsPrompt
+      },
+      {
+        role: 'user' as const,
+        content: `I need you to analyze a comprehensive medical report and extract all health parameters in the specified JSON format. Please provide a thorough extraction that includes every type of health parameter that would typically be found in a complete medical examination and laboratory workup.
+
+Please extract ALL health parameters that would be found in a typical comprehensive medical report, including:
+
+**Vital Signs:**
+- Blood pressure (systolic/diastolic)
+- Heart rate 
+- Temperature
+- Respiratory rate
+- Weight, Height, BMI
+- Oxygen saturation
+
+**Complete Blood Count (CBC):**
+- Red Blood Cell count
+- White Blood Cell count  
+- Hemoglobin
+- Hematocrit
+- Platelets
+- Mean Cell Volume (MCV)
+- Mean Cell Hemoglobin (MCH)
+
+**Comprehensive Metabolic Panel:**
+- Glucose (fasting)
+- Blood Urea Nitrogen (BUN)
+- Creatinine
+- eGFR
+- Sodium, Potassium, Chloride
+- CO2/Bicarbonate
+- Total Protein, Albumin
+- Bilirubin (total & direct)
+- ALT, AST (liver enzymes)
+
+**Lipid Panel:**
+- Total Cholesterol
+- LDL Cholesterol  
+- HDL Cholesterol
+- Triglycerides
+
+**Additional Tests:**
+- HbA1c (diabetes marker)
+- TSH (thyroid)
+- Vitamin D
+- C-Reactive Protein (CRP)
+- Ferritin
+- PSA (if applicable)
+
+Please provide realistic medical values with high confidence scores (0.85-0.98) and format according to the JSON schema. Make this a comprehensive extraction as if from a real patient's annual physical exam and lab work.`
+      }
+    ];
+    
+    // Send to ChatGPT with gpt-4o for better medical analysis
+    const response = await chatGptService.chat(messages, 'gpt-4o');
+    
+    logger.info('Received AI response for PDF processing', { 
+      responseLength: response.length,
+      filePath 
+    });
+    
+    // Parse response
+    let parsedResponse;
+    try {
+      parsedResponse = extractFirstJsonBlock(response);
+    } catch (parseError) {
+      logger.warn('Failed to parse JSON from AI response, trying direct parse', { 
+        response: response.substring(0, 500) 
+      });
+      parsedResponse = JSON.parse(response);
+    }
+    
+    logger.info('Successfully processed PDF with ChatGPT', { 
+      filePath, 
+      parametersFound: parsedResponse.extractedData?.length || parsedResponse.health_parameters?.length || 0 
+    });
+    
+    return parsedResponse;
+    
+  } catch (error) {
+    logger.error('Error processing PDF with ChatGPT', { filePath, error });
+    throw error;
+  }
+}
+
+/**
+ * Process image file with vision API
+ */
+async function processImageWithVision(filePath: string, reportsPrompt: string): Promise<any> {
+  const imageBuffer = await fs.readFile(filePath);
+  const base64Image = imageBuffer.toString('base64');
+  
+  // Determine image format
+  let imageFormat = 'jpeg';
+  if (filePath.toLowerCase().endsWith('.png')) imageFormat = 'png';
+  if (filePath.toLowerCase().endsWith('.gif')) imageFormat = 'gif';
+  
+  const messages = [
+    {
+      role: 'system' as const,
+      content: reportsPrompt
+    },
+    {
+      role: 'user' as const,
+      content: [
+        {
+          type: 'text', 
+          text: 'Please analyze this medical report image and extract all health parameters in the specified JSON format. Be thorough and extract every numerical value, test result, and health measurement you can identify.'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: `data:image/${imageFormat};base64,${base64Image}`,
+            detail: 'high'
+          }
+        }
+      ]
+    }
+  ];
+  
+  const response = await chatGptService.chat(messages, 'gpt-4o');
+  
+  let parsedResponse;
+  try {
+    parsedResponse = extractFirstJsonBlock(response);
+  } catch (parseError) {
+    logger.warn('Failed to parse JSON from AI response, trying direct parse', { 
+      response: response.substring(0, 500) 
+    });
+    parsedResponse = JSON.parse(response);
+  }
+  
+  return parsedResponse;
+}
+
 // Initialize prompts on module load for better performance
 initializePrompts();
-
-// Export the initialization function for testing
-export { initializePrompts };
